@@ -1,7 +1,6 @@
 const CONFIG = {
-  API_URL: "api.php",          // Endpoint de tu backend PHP/Node en WampServer
-  INTERVALO_MS: 3000,
-  ADMIN_PASS: "ADMIN123"
+  API_URL: "/api/accesos",
+  INTERVALO_MS: 3000
 };
 
 /* Carreras por Nivel según especificaciones */
@@ -31,7 +30,7 @@ const ESTADO_DESCONOCIDO = { texto: "", clase: "otro", dentro: false };
 const LIMITES_MIN = { SANITARIO: 10, BANO: 10, BREAK: 30, COFFEE_SALIDA: 30 };
 const ETIQUETA_CORTA = { SANITARIO: "sanitario", BANO: "sanitario", BREAK: "break", COFFEE_SALIDA: "break" };
 
-/* Base de datos local (sincronizable con MySQL WampServer) */
+/* Copia local para uso sin conexión; Firebase es la fuente compartida al iniciar sesión. */
 let db = JSON.parse(localStorage.getItem("ilb_relacional_db")) || {
   alumnos: [],
   profesores: [],
@@ -65,9 +64,36 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentQrObj = null;
   let currentModalPayload = null;
   let dbVistaActual = "alumnos"; // "alumnos" | "profesores" | "invitados"
+  let sincronizacionDb = Promise.resolve();
+
+  async function apiRequest(url, options = {}) {
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {})
+      },
+      cache: "no-store"
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || `Error HTTP ${response.status}`);
+    return body;
+  }
 
   function saveDatabase() {
     localStorage.setItem("ilb_relacional_db", JSON.stringify(db));
+    if (!esAdmin) return;
+
+    const snapshot = JSON.parse(JSON.stringify(db));
+    sincronizacionDb = sincronizacionDb.catch(() => {}).then(() =>
+      apiRequest("/api/admin/database", {
+        method: "PUT",
+        body: JSON.stringify(snapshot)
+      })
+    ).catch(error => {
+      console.error("No se pudo sincronizar la base de datos con Firebase:", error);
+      alert(`No se guardaron los cambios en Firebase: ${error.message}`);
+    });
   }
 
   function registrarCodigoQR(tipo, idReferencia, nombreCompleto) {
@@ -212,20 +238,52 @@ document.addEventListener("DOMContentLoaded", () => {
   $("baseDatosBtn").addEventListener("click", e => { e.preventDefault(); mostrarVistaAdmin("baseDatos"); });
   $("btnHistorial").addEventListener("click", () => mostrarVistaAdmin("historial"));
 
-  $("formAdminLogin").addEventListener("submit", e => {
+  $("formAdminLogin").addEventListener("submit", async e => {
     e.preventDefault();
-    if ($("adminPasswordInput").value === CONFIG.ADMIN_PASS) {
+    const password = $("adminPasswordInput").value;
+    try {
+      await apiRequest("/api/admin/login", {
+        method: "POST",
+        body: JSON.stringify({ password })
+      });
+      const datosNube = await apiRequest("/api/admin/database");
+      const hayNube = datosNube.alumnos.length || datosNube.profesores.length ||
+        datosNube.invitados.length || datosNube.codigos_qr.length;
+      const hayLocal = db.alumnos.length || db.profesores.length ||
+        db.invitados.length || db.codigos_qr.length;
+
+      if (!hayNube && hayLocal) {
+        if (confirm("Firebase está vacío. ¿Deseas migrar a Firebase los registros guardados en este navegador?")) {
+          await apiRequest("/api/admin/database", {
+            method: "PUT",
+            body: JSON.stringify(db)
+          });
+        } else {
+          db = datosNube;
+        }
+      } else {
+        db = datosNube;
+      }
+
+      localStorage.setItem("ilb_relacional_db", JSON.stringify(db));
       esAdmin = true;
       $("adminPasswordInput").value = "";
       mostrarVistaAdmin("inicio");
       render();
-    } else {
-      alert("Contraseña incorrecta. Intente de nuevo.");
+      await cargarDatos();
+    } catch (error) {
+      $("adminPasswordInput").value = "";
+      alert(error.message);
     }
   });
 
-  $("btnLogoutAdmin").addEventListener("click", e => {
+  $("btnLogoutAdmin").addEventListener("click", async e => {
     e.preventDefault();
+    try {
+      await apiRequest("/api/admin/logout", { method: "POST" });
+    } catch (error) {
+      console.error("No se pudo cerrar la sesión en el servidor:", error);
+    }
     esAdmin = false;
     mostrarVistaPublica("registro");
   });
@@ -408,9 +466,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function obtenerDia(f) {
     if (!CONFIG.API_URL) throw new Error("API_URL no configurada");
-    const resp = await fetch(`${CONFIG.API_URL}?fecha=${f}`, { cache: "no-store" });
-    if (!resp.ok) throw new Error("HTTP " + resp.status);
-    const d = await resp.json();
+    const d = await apiRequest(`${CONFIG.API_URL}?fecha=${encodeURIComponent(f)}`);
     return Array.isArray(d) ? d : [];
   }
 
@@ -473,7 +529,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function cargarDatos() {
-    if (!CONFIG.API_URL) return;
+    if (!CONFIG.API_URL || !esAdmin) return;
     try {
       registros = normalizar(await obtenerDia(diaActual), diaActual);
       $("conexion").hidden = false;
@@ -544,7 +600,7 @@ document.addEventListener("DOMContentLoaded", () => {
     e.target.value = e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
   });
 
-  $("formCheckAlumno").addEventListener("submit", e => {
+  $("formCheckAlumno").addEventListener("submit", async e => {
     e.preventDefault();
     const mat = $("checkAlumnoMatricula").value.trim().toUpperCase();
     const correo = $("checkAlumnoCorreo").value.trim().toLowerCase();
@@ -554,31 +610,27 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const encontrado = db.alumnos.find(
-      a => String(a.matricula).toUpperCase() === mat && String(a.correo_institucional || a.correo).toLowerCase() === correo
-    );
-
-    if (encontrado) {
-      $("msgNoRegistradoAlumno").hidden = true;
-      $("formAlumno").hidden = true;
-      const nombreCompleto = `${encontrado.nombre} ${encontrado.apellido_paterno} ${encontrado.apellido_materno}`;
-      const id_qr = registrarCodigoQR("alumnos", encontrado.matricula, nombreCompleto);
-      saveDatabase();
-      showQrModal({
-        id_qr,
-        nombre_completo: nombreCompleto,
-        detalle: `${encontrado.nivel} · ${encontrado.carrera} (${encontrado.grupo})`,
-        correo: encontrado.correo_institucional || encontrado.correo
+    try {
+      const resultado = await apiRequest("/api/public/lookup", {
+        method: "POST",
+        body: JSON.stringify({ type: "student", identifier: mat, email: correo })
       });
-    } else {
-      $("msgNoRegistradoAlumno").hidden = false;
-      $("formAlumno").hidden = false;
-      $("alumnoMatricula").value = mat;
-      $("alumnoCorreo").value = correo;
+      if (resultado.found) {
+        $("msgNoRegistradoAlumno").hidden = true;
+        $("formAlumno").hidden = true;
+        showQrModal(resultado.qr);
+      } else {
+        $("msgNoRegistradoAlumno").hidden = false;
+        $("formAlumno").hidden = false;
+        $("alumnoMatricula").value = mat;
+        $("alumnoCorreo").value = correo;
+      }
+    } catch (error) {
+      alert(`No se pudo consultar Firebase: ${error.message}`);
     }
   });
 
-  $("formAlumno").addEventListener("submit", e => {
+  $("formAlumno").addEventListener("submit", async e => {
     e.preventDefault();
     const nombre = $("alumnoNombre").value.trim();
     const apellido_paterno = $("alumnoPaterno").value.trim();
@@ -596,38 +648,46 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const nombreCompleto = `${nombre} ${apellido_paterno} ${apellido_materno}`;
-    const id_qr = registrarCodigoQR("alumnos", matricula, nombreCompleto);
-
-    const alumnoRecord = {
-      id_alumno: db.alumnos.length + 1,
-      nombre,
-      apellido_paterno,
-      apellido_materno,
-      matricula,
-      correo,
-      nivel,
-      carrera,
-      grupo,
-      codigo_qr: id_qr
-    };
-
-    db.alumnos.push(alumnoRecord);
-    saveDatabase();
-
-    $("formAlumno").reset();
-    $("formCheckAlumno").reset();
-    $("formAlumno").hidden = true;
-    $("msgNoRegistradoAlumno").hidden = true;
-    $("campoCarreraOtra").hidden = true;
-    $("campoGrupoOtro").hidden = true;
-
-    showQrModal({
-      id_qr,
-      nombre_completo: nombreCompleto,
-      detalle: `${nivel} · ${carrera} (${grupo})`,
-      correo
-    });
+    try {
+      const resultado = await apiRequest("/api/public/register", {
+        method: "POST",
+        body: JSON.stringify({
+          type: "student",
+          matricula,
+          nombre,
+          apellido_paterno,
+          apellido_materno,
+          correo,
+          nivel,
+          carrera,
+          grupo
+        })
+      });
+      const qr = resultado.qr;
+      db.alumnos.push({
+        id_alumno: db.alumnos.length + 1,
+        nombre,
+        apellido_paterno,
+        apellido_materno,
+        matricula,
+        correo,
+        nivel,
+        carrera,
+        grupo,
+        codigo_qr: qr.id_qr
+      });
+      registrarCodigoQR("alumnos", matricula, qr.nombre_completo);
+      saveDatabase();
+      $("formAlumno").reset();
+      $("formCheckAlumno").reset();
+      $("formAlumno").hidden = true;
+      $("msgNoRegistradoAlumno").hidden = true;
+      $("campoCarreraOtra").hidden = true;
+      $("campoGrupoOtro").hidden = true;
+      showQrModal(qr);
+    } catch (error) {
+      alert(`No se pudo registrar en Firebase: ${error.message}`);
+    }
   });
 
   /* ---------- FLUJO PROFESOR: PASO 1 CONSULTA / PASO 2 REGISTRO ---------- */
@@ -638,7 +698,7 @@ document.addEventListener("DOMContentLoaded", () => {
     e.target.value = e.target.value.replace(/\D/g, "");
   });
 
-  $("formCheckProfesor").addEventListener("submit", e => {
+  $("formCheckProfesor").addEventListener("submit", async e => {
     e.preventDefault();
     const cred = $("checkProfCredencial").value.trim();
     const correo = $("checkProfCorreo").value.trim().toLowerCase();
@@ -648,31 +708,27 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const encontrado = db.profesores.find(
-      p => String(p.num_credencial) === cred && String(p.correo_institucional || p.correo).toLowerCase() === correo
-    );
-
-    if (encontrado) {
-      $("msgNoRegistradoProfesor").hidden = true;
-      $("formProfesor").hidden = true;
-      const nombreCompleto = `${encontrado.nombre} ${encontrado.apellido_paterno} ${encontrado.apellido_materno}`;
-      const id_qr = registrarCodigoQR("profesores", encontrado.num_credencial, nombreCompleto);
-      saveDatabase();
-      showQrModal({
-        id_qr,
-        nombre_completo: nombreCompleto,
-        detalle: `Docente · Credencial ${encontrado.num_credencial}`,
-        correo: encontrado.correo_institucional || encontrado.correo
+    try {
+      const resultado = await apiRequest("/api/public/lookup", {
+        method: "POST",
+        body: JSON.stringify({ type: "teacher", identifier: cred, email: correo })
       });
-    } else {
-      $("msgNoRegistradoProfesor").hidden = false;
-      $("formProfesor").hidden = false;
-      $("profesorCredencial").value = cred;
-      $("profesorCorreo").value = correo;
+      if (resultado.found) {
+        $("msgNoRegistradoProfesor").hidden = true;
+        $("formProfesor").hidden = true;
+        showQrModal(resultado.qr);
+      } else {
+        $("msgNoRegistradoProfesor").hidden = false;
+        $("formProfesor").hidden = false;
+        $("profesorCredencial").value = cred;
+        $("profesorCorreo").value = correo;
+      }
+    } catch (error) {
+      alert(`No se pudo consultar Firebase: ${error.message}`);
     }
   });
 
-  $("formProfesor").addEventListener("submit", e => {
+  $("formProfesor").addEventListener("submit", async e => {
     e.preventDefault();
     const nombre = $("profesorNombre").value.trim();
     const apellido_paterno = $("profesorPaterno").value.trim();
@@ -685,59 +741,55 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const nombreCompleto = `${nombre} ${apellido_paterno} ${apellido_materno}`;
-    const id_qr = registrarCodigoQR("profesores", num_credencial, nombreCompleto);
-
-    const profRecord = {
-      id_profesor: db.profesores.length + 1,
-      nombre,
-      apellido_paterno,
-      apellido_materno,
-      num_credencial,
-      correo,
-      codigo_qr: id_qr
-    };
-
-    db.profesores.push(profRecord);
-    saveDatabase();
-
-    $("formProfesor").reset();
-    $("formCheckProfesor").reset();
-    $("formProfesor").hidden = true;
-    $("msgNoRegistradoProfesor").hidden = true;
-
-    showQrModal({
-      id_qr,
-      nombre_completo: nombreCompleto,
-      detalle: `Docente · Credencial ${num_credencial}`,
-      correo
-    });
+    try {
+      const resultado = await apiRequest("/api/public/register", {
+        method: "POST",
+        body: JSON.stringify({
+          type: "teacher",
+          num_credencial,
+          nombre,
+          apellido_paterno,
+          apellido_materno,
+          correo
+        })
+      });
+      const qr = resultado.qr;
+      db.profesores.push({
+        id_profesor: db.profesores.length + 1,
+        nombre,
+        apellido_paterno,
+        apellido_materno,
+        num_credencial,
+        correo,
+        codigo_qr: qr.id_qr
+      });
+      registrarCodigoQR("profesores", num_credencial, qr.nombre_completo);
+      saveDatabase();
+      $("formProfesor").reset();
+      $("formCheckProfesor").reset();
+      $("formProfesor").hidden = true;
+      $("msgNoRegistradoProfesor").hidden = true;
+      showQrModal(qr);
+    } catch (error) {
+      alert(`No se pudo registrar en Firebase: ${error.message}`);
+    }
   });
 
   /* ---------- FLUJO INVITADO PÚBLICO: VALIDACIÓN ---------- */
-  $("formCheckInvitado").addEventListener("submit", e => {
+  $("formCheckInvitado").addEventListener("submit", async e => {
     e.preventDefault();
     const nombreBuscado = $("checkInvNombre").value.trim().toLowerCase();
     const correoBuscado = $("checkInvCorreo").value.trim().toLowerCase();
 
-    const encontrado = db.invitados.find(
-      inv => String(inv.correo).toLowerCase() === correoBuscado &&
-             String(inv.nombre).toLowerCase().includes(nombreBuscado)
-    );
-
-    if (encontrado) {
-      $("msgNoRegistradoInvitado").hidden = true;
-      const nombreCompleto = `${encontrado.nombre} ${encontrado.apellido_paterno} ${encontrado.apellido_materno}`;
-      const id_qr = encontrado.codigo_qr || registrarCodigoQR("invitados", encontrado.id_invitado, nombreCompleto);
-      saveDatabase();
-      showQrModal({
-        id_qr,
-        nombre_completo: nombreCompleto,
-        detalle: "Invitado Especial",
-        correo: encontrado.correo
+    try {
+      const resultado = await apiRequest("/api/public/lookup", {
+        method: "POST",
+        body: JSON.stringify({ type: "guest", name: nombreBuscado, email: correoBuscado })
       });
-    } else {
-      $("msgNoRegistradoInvitado").hidden = false;
+      $("msgNoRegistradoInvitado").hidden = resultado.found;
+      if (resultado.found) showQrModal(resultado.qr);
+    } catch (error) {
+      alert(`No se pudo consultar Firebase: ${error.message}`);
     }
   });
 

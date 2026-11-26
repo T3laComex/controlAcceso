@@ -1,0 +1,12 @@
+specVersion: "v1"
+serviceId: t3lacceso-servicio
+location: us-south1
+schema:
+  source: schema
+  datasource:
+    postgresql:
+      database: postgres
+      cloudSql:
+        instanceId: t3lacceso-servicio
+      schemaValidation: STRICT
+connectorDirs: []

@@ -1,29 +1,32 @@
-# Control de Acceso conectado a Firebase SQL Connect
+# Control de Acceso ILB
 
-## Preparación
+## Publicar desde GitHub en Firebase Hosting
 
-1. Instala Node.js 22 o posterior.
-2. Ejecuta `npm install`.
-3. Copia `.env.example` a `.env` y configura una contraseña administrativa y un secreto aleatorio de al menos 32 caracteres.
-4. Para desarrollo local, configura Application Default Credentials con `gcloud auth application-default login`, o define `GOOGLE_APPLICATION_CREDENTIALS` con una cuenta de servicio guardada fuera del repositorio. La cuenta necesita permisos para ejecutar operaciones de Firebase SQL Connect.
-5. Despliega primero el esquema de Data Connect y luego inicia el sitio:
+El workflow de GitHub Actions publica automáticamente la página estática en Firebase Hosting cuando hay cambios en `main`. Los pull requests dirigidos a `main` crean una vista previa temporal de siete días.
 
-   ```sh
-   npx firebase-tools login
-   npx firebase-tools deploy --only dataconnect --project t3lacceso
-   npm start
+### Configuración inicial (una vez)
+
+1. En Firebase Console, abre el proyecto `t3lacceso` y configura un sitio en **Hosting**. Firebase Hosting tiene cuota gratuita; no despliegues Data Connect para este flujo.
+2. En Google Cloud Console → **IAM y administración → Cuentas de servicio**, crea una cuenta de servicio para GitHub Actions y asígnale el rol **Firebase Hosting Admin** (`roles/firebasehosting.admin`). Este rol permite administrar Hosting; no le concedas roles de administrador de Firebase o de bases de datos.
+3. Genera una clave JSON para esa cuenta de servicio. No añadas el archivo JSON al repositorio ni lo envíes por chat. Para guardarlo directamente como secreto del repositorio, instala GitHub CLI, autentícate con `gh auth login`, y desde PowerShell ejecuta:
+
+   ```powershell
+   Get-Content -Raw -LiteralPath "$env:USERPROFILE\.config\control-acceso\t3lacceso-firebase-adminsdk-fbsvc-22ed280271.json" |
+     gh secret set FIREBASE_SERVICE_ACCOUNT_T3LACCESO --repo T3laComex/controlAcceso
    ```
 
-Abre `http://localhost:3000`. El sitio y la API deben servirse desde el mismo origen; abrir `index.html` directamente o usar una extensión de servidor estático no conectará con Node.
+   La clave se envía por entrada estándar y no se imprime en la terminal. También puedes crear el secreto desde **T3laComex/controlAcceso → Settings → Secrets and variables → Actions → New repository secret**, con el nombre `FIREBASE_SERVICE_ACCOUNT_T3LACCESO`.
+4. Verifica que la rama predeterminada sea `main` y que Actions esté habilitado.
+5. Envía un commit a `main`. Revisa la pestaña **Actions** en GitHub para ver el resultado y la URL de Hosting.
 
-## Configuración de Data Connect
+La autenticación de GitHub Actions es distinta de ADC: este despliegue usa el secreto guardado en GitHub. No hace falta ejecutar `gcloud auth application-default login` para publicar.
 
-El esquema y la configuración del servicio están en `dataconnect/`. Antes de desplegar, confirma en Firebase Console que el ID de instancia de Cloud SQL sea `t3lacceso-servicio` y que la base de datos sea `postgres`. Si la consola muestra otro ID, actualiza `dataconnect/dataconnect.yaml`.
+## Alcance actual y siguientes pasos
 
-El backend usa el Admin SDK solo en Node. No pongas credenciales de servicio ni contraseñas en `script.js`. Las operaciones administrativas requieren la cookie de sesión que se crea tras validar `ADMIN_PASSWORD`.
+Esto conecta **GitHub → Firebase Hosting** para publicar los archivos estáticos. No despliega Firebase Data Connect ni conecta el formulario a una base de datos. El código actual todavía usa rutas `/api/...` atendidas por `server.js`; Firebase Hosting por sí solo no ejecuta ese servidor, así que las funciones de registro y administración no estarán disponibles en el sitio publicado todavía.
 
-## Migración de datos locales
+Adaptar esos flujos a Firebase Firestore con Firebase Authentication y reglas seguras queda como una fase posterior. La configuración de Data Connect se conserva en `dataconnect/`, pero no se despliega en este flujo.
 
-Al iniciar sesión por primera vez, si Data Connect está vacío y hay datos en el navegador, el panel pregunta si deseas copiarlos a Firebase. Si Firebase ya contiene registros, esos datos reemplazan la copia local del navegador.
+## Desarrollo local existente
 
-El endpoint `GET /api/health` verifica la conexión real con Data Connect. Los errores de conexión se registran en la terminal y la API responde con error; no se usa `localStorage` como sustituto silencioso de Firebase.
+Para ejecutar el backend Node actual localmente, instala Node.js 22 o posterior, ejecuta `npm install`, configura `.env` a partir de `.env.example` y luego `npm start`. El backend actual necesita credenciales de Google y Data Connect; la publicación estática de Hosting no las necesita.

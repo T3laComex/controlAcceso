@@ -1,5 +1,22 @@
 {
   "dataconnect": {
     "source": "dataconnect"
+  },
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      "README.md",
+      ".env",
+      ".env.*",
+      "**/.*",
+      ".git/**",
+      ".github/**",
+      "**/node_modules/**",
+      "dataconnect/**",
+      "server.js",
+      "package.json",
+      "package-lock.json"
+    ]
   }
 }

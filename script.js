@@ -1,56 +1,52 @@
 const CONFIG = {
-  API_URL: "",          // Endpoint de tu backend para Tbl_accesos
+  API_URL: "api.php",          // Endpoint de tu backend PHP/Node en WampServer
   INTERVALO_MS: 3000,
   ADMIN_PASS: "ADMIN123"
 };
 
-/* Carreras por Nivel (TBL_Alumnos_ILB) */
+/* Carreras por Nivel según especificaciones */
 const CARRERAS_POR_NIVEL = {
   "Medio Superior": [
-    "Técnico en Informática",
-    "Técnico en Administración",
-    "Técnico en Contabilidad",
-    "Bachillerato General"
+    "Bachillerato Informático",
+    "Otro"
   ],
   "Superior": [
-    "Ingeniería en Sistemas Computacionales",
-    "Licenciatura en Informática Administrativa",
-    "Licenciatura en Administración",
-    "Licenciatura en Contaduría Pública",
-    "Licenciatura en Derecho"
+    "Licenciatura en Ciencias de la Informática",
+    "Otro"
   ]
 };
 
-/* Estados de Tbl_accesos (entrada, salida, break, sanitario) */
+/* Estados de acceso (entrada, salida, break, sanitario) */
 const ESTADOS = {
-  ENTRADA:        { texto: "ENTRADA",                 clase: "dentro", dentro: true  },
-  SALIDA:         { texto: "SALIDA",                  clase: "fuera",  dentro: false },
-  SANITARIO:      { texto: "SANITARIO",               clase: "bano",   dentro: false },
-  BANO:           { texto: "SANITARIO",               clase: "bano",   dentro: false },
-  BREAK:          { texto: "BREAK",                   clase: "coffee", dentro: false },
-  COFFEE_SALIDA:  { texto: "BREAK",                   clase: "coffee", dentro: false },
-  REGRESO:        { texto: "REGRESO",                 clase: "dentro", dentro: true  },
-  COFFEE_ENTRADA: { texto: "REGRESO DE BREAK",        clase: "dentro", dentro: true  }
+  ENTRADA:        { texto: "ENTRADA",          clase: "dentro", dentro: true  },
+  SALIDA:         { texto: "SALIDA",           clase: "fuera",  dentro: false },
+  SANITARIO:      { texto: "SANITARIO",        clase: "bano",   dentro: false },
+  BANO:           { texto: "SANITARIO",        clase: "bano",   dentro: false },
+  BREAK:          { texto: "BREAK",            clase: "coffee", dentro: false },
+  COFFEE_SALIDA:  { texto: "BREAK",            clase: "coffee", dentro: false },
+  REGRESO:        { texto: "REGRESO",          clase: "dentro", dentro: true  },
+  COFFEE_ENTRADA: { texto: "REGRESO DE BREAK", clase: "dentro", dentro: true  }
 };
 const ESTADO_DESCONOCIDO = { texto: "", clase: "otro", dentro: false };
 const LIMITES_MIN = { SANITARIO: 10, BANO: 10, BREAK: 30, COFFEE_SALIDA: 30 };
 const ETIQUETA_CORTA = { SANITARIO: "sanitario", BANO: "sanitario", BREAK: "break", COFFEE_SALIDA: "break" };
 
-/* Catálogo tbl_estado */
-const TBL_ESTADO = [
-  { id_estado: 1, descripcion: "Activo" },
-  { id_estado: 2, descripcion: "Especial" },
-  { id_estado: 3, descripcion: "Graduado" }
-];
-
-/* Base de datos relacional en localStorage */
+/* Base de datos local (sincronizable con MySQL WampServer) */
 let db = JSON.parse(localStorage.getItem("ilb_relacional_db")) || {
-  TBL_Alumnos_ILB: [],
-  tbl_Profesor: [],
-  tbl_invitado: [],
-  tbl_estado: TBL_ESTADO,
-  tbl_codigos_qr: []
+  alumnos: [],
+  profesores: [],
+  invitados: [],
+  codigos_qr: []
 };
+
+// Compatibilidad si existían datos previos con los nombres viejos
+if (db.TBL_Alumnos_ILB && !db.alumnos) db.alumnos = db.TBL_Alumnos_ILB;
+if (db.tbl_Profesor && !db.profesores) db.profesores = db.tbl_Profesor;
+if (db.tbl_invitado && !db.invitados) db.invitados = db.tbl_invitado;
+if (!db.alumnos) db.alumnos = [];
+if (!db.profesores) db.profesores = [];
+if (!db.invitados) db.invitados = [];
+if (!db.codigos_qr) db.codigos_qr = [];
 
 document.addEventListener("DOMContentLoaded", () => {
   const $ = id => document.getElementById(id);
@@ -68,18 +64,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let currentQrObj = null;
   let currentModalPayload = null;
+  let dbVistaActual = "alumnos"; // "alumnos" | "profesores" | "invitados"
 
   function saveDatabase() {
     localStorage.setItem("ilb_relacional_db", JSON.stringify(db));
   }
 
-  function registrarCodigoQR(tablaOrigen, idReferencia, nombreCompleto) {
-    const idQr = `QR-${tablaOrigen === "TBL_Alumnos_ILB" ? "ALU" : tablaOrigen === "tbl_Profesor" ? "PROF" : "INV"}-${idReferencia}`;
-    const existe = db.tbl_codigos_qr.find(q => q.id_qr === idQr);
+  function registrarCodigoQR(tipo, idReferencia, nombreCompleto) {
+    const prefijo = tipo === "alumnos" ? "ALU" : tipo === "profesores" ? "PROF" : "INV";
+    const idQr = `QR-${prefijo}-${idReferencia}`;
+    const existe = db.codigos_qr.find(q => q.id_qr === idQr);
     if (!existe) {
-      db.tbl_codigos_qr.push({
+      db.codigos_qr.push({
         id_qr: idQr,
-        tabla_origen: tablaOrigen,
+        tipo,
         id_referencia: String(idReferencia),
         titular: nombreCompleto,
         fecha_emision: claveDia(new Date()),
@@ -137,8 +135,32 @@ document.addEventListener("DOMContentLoaded", () => {
     return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min` : `${m} min`;
   }
 
+  /* ---------- ACCESO SECRETO ADMINISTRADOR (3 CLICS EN MAPACHE O CTRL+SHIFT+A) ---------- */
+  let clicsMapache = 0;
+  let timerClics = null;
+
+  $("logoMapache").addEventListener("click", () => {
+    clicsMapache++;
+    clearTimeout(timerClics);
+    timerClics = setTimeout(() => { clicsMapache = 0; }, 1200);
+
+    if (clicsMapache >= 3) {
+      clicsMapache = 0;
+      if (!esAdmin) {
+        mostrarVistaPublica("adminLogin");
+      }
+    }
+  });
+
+  document.addEventListener("keydown", e => {
+    if (e.ctrlKey && e.shiftKey && e.key.toUpperCase() === "A") {
+      e.preventDefault();
+      if (!esAdmin) mostrarVistaPublica("adminLogin");
+    }
+  });
+
   /* ---------- NAVEGACIÓN POR ROL (PÚBLICO vs ADMIN) ---------- */
-  const todasLasSecciones = ["registro", "adminLogin", "inicio", "historial", "invitado"];
+  const todasLasSecciones = ["registro", "adminLogin", "inicio", "historial", "invitado", "baseDatos"];
 
   function ocultarTodas() {
     todasLasSecciones.forEach(sec => { $(sec).hidden = true; });
@@ -151,7 +173,7 @@ document.addEventListener("DOMContentLoaded", () => {
     $("menuAdmin").hidden = true;
     if (vista === "adminLogin") {
       $("adminLogin").hidden = false;
-      $("adminLoginBtn").classList.add("activo");
+      $("adminPasswordInput").focus();
     } else {
       $("registro").hidden = false;
       $("registroBtn").classList.add("activo");
@@ -173,36 +195,35 @@ document.addEventListener("DOMContentLoaded", () => {
     } else if (vista === "invitado") {
       $("invitado").hidden = false;
       $("invitadoBtn").classList.add("activo");
+    } else if (vista === "baseDatos") {
+      $("baseDatos").hidden = false;
+      $("baseDatosBtn").classList.add("activo");
+      renderBaseDatos();
     } else {
       $("inicio").hidden = false;
       $("inicioBtn").classList.add("activo");
     }
   }
 
-  // Eventos del menú público
   $("registroBtn").addEventListener("click", e => { e.preventDefault(); mostrarVistaPublica("registro"); });
-  $("adminLoginBtn").addEventListener("click", e => { e.preventDefault(); mostrarVistaPublica("adminLogin"); });
-
-  // Eventos del menú administrador
   $("inicioBtn").addEventListener("click", e => { e.preventDefault(); mostrarVistaAdmin("inicio"); });
   $("historialBtn").addEventListener("click", e => { e.preventDefault(); mostrarVistaAdmin("historial"); });
   $("invitadoBtn").addEventListener("click", e => { e.preventDefault(); mostrarVistaAdmin("invitado"); });
+  $("baseDatosBtn").addEventListener("click", e => { e.preventDefault(); mostrarVistaAdmin("baseDatos"); });
   $("btnHistorial").addEventListener("click", () => mostrarVistaAdmin("historial"));
 
-  // Login Administrador
   $("formAdminLogin").addEventListener("submit", e => {
     e.preventDefault();
     if ($("adminPasswordInput").value === CONFIG.ADMIN_PASS) {
       esAdmin = true;
       $("adminPasswordInput").value = "";
-      mostrarVistaAdmin("inicio"); // Entra directo al Monitor en Vivo
+      mostrarVistaAdmin("inicio");
       render();
     } else {
       alert("Contraseña incorrecta. Intente de nuevo.");
     }
   });
 
-  // Cerrar Sesión Administrador
   $("btnLogoutAdmin").addEventListener("click", e => {
     e.preventDefault();
     esAdmin = false;
@@ -231,7 +252,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  /* ---------- MONITOR EN VIVO & HISTORIAL (Tbl_accesos) ---------- */
+  /* ---------- MONITOR EN VIVO & HISTORIAL ---------- */
   function tiempoEnEstado(r) {
     const lim = LIMITES_MIN[claveEstado(r.estado)];
     if (!lim) return null;
@@ -289,7 +310,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     cuerpo.replaceChildren();
     if (!lista.length) {
-      cuerpo.appendChild(filaVacia(7, filtro ? "Sin resultados para tu búsqueda." : "Aún no hay registros en Tbl_accesos hoy. Esperando escaneos…"));
+      cuerpo.appendChild(filaVacia(7, filtro ? "Sin resultados para tu búsqueda." : "Aún no hay registros de acceso hoy. Esperando escaneos…"));
       return;
     }
 
@@ -418,7 +439,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const a = document.createElement("a");
     a.href = url;
-    a.download = `Tbl_accesos_${fechaVista}.csv`;
+    a.download = `Accesos_ILB_${fechaVista}.csv`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -443,12 +464,6 @@ document.addEventListener("DOMContentLoaded", () => {
   $("buscarHistorial").addEventListener("input", renderHistorial);
   $("filtroEstado").addEventListener("change", renderHistorial);
 
-  function marcarConexion(ok, texto) {
-    $("conexion").classList.toggle("ok", ok);
-    $("conexion").classList.toggle("error", !ok);
-    $("conexionTexto").textContent = texto;
-  }
-
   function normalizar(lista, dia) {
     return lista
       .map(r => ({ ...r, _fecha: new Date(r.fecha_hora) }))
@@ -458,36 +473,47 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function cargarDatos() {
-    if (!CONFIG.API_URL) { marcarConexion(false, "Modo Local (Sin API_URL)"); return; }
+    if (!CONFIG.API_URL) return;
     try {
       registros = normalizar(await obtenerDia(diaActual), diaActual);
-      marcarConexion(true, "En vivo · " + formatoHora(new Date()));
+      $("conexion").hidden = false;
+      $("conexion").classList.add("ok");
+      $("conexionTexto").textContent = "En vivo · " + formatoHora(new Date());
       render();
     } catch (err) {
       console.error("Error al consultar la API:", err);
-      marcarConexion(false, "Sin conexión con el servidor");
     }
   }
 
-  /* ---------- REGISTRO PÚBLICO (TBL_Alumnos_ILB & tbl_Profesor) ---------- */
-  $("tabAlumno").addEventListener("click", () => {
-    $("tabAlumno").classList.add("activo");
-    $("tabProfesor").classList.remove("activo");
-    $("formAlumno").hidden = false;
-    $("formProfesor").hidden = true;
-  });
+  /* ---------- PESTAÑAS DE REGISTRO PÚBLICO (ALUMNO / PROFESOR / INVITADO) ---------- */
+  function activarTabRegistro(tab) {
+    ["tabAlumno", "tabProfesor", "tabInvitadoPub"].forEach(id => $(id).classList.remove("activo"));
+    ["bloqueAlumno", "bloqueProfesor", "bloqueInvitadoPub"].forEach(id => $(id).hidden = true);
 
-  $("tabProfesor").addEventListener("click", () => {
-    $("tabProfesor").classList.add("activo");
-    $("tabAlumno").classList.remove("activo");
-    $("formProfesor").hidden = false;
-    $("formAlumno").hidden = true;
-  });
+    if (tab === "alumno") {
+      $("tabAlumno").classList.add("activo");
+      $("bloqueAlumno").hidden = false;
+    } else if (tab === "profesor") {
+      $("tabProfesor").classList.add("activo");
+      $("bloqueProfesor").hidden = false;
+    } else {
+      $("tabInvitadoPub").classList.add("activo");
+      $("bloqueInvitadoPub").hidden = false;
+    }
+  }
 
+  $("tabAlumno").addEventListener("click", () => activarTabRegistro("alumno"));
+  $("tabProfesor").addEventListener("click", () => activarTabRegistro("profesor"));
+  $("tabInvitadoPub").addEventListener("click", () => activarTabRegistro("invitado"));
+
+  /* ---------- LÓGICA DE COMBOBOX ALUMNO (NIVEL, CARRERA, GRUPO + "OTRO") ---------- */
   $("alumnoNivel").addEventListener("change", e => {
     const nivel = e.target.value;
     const selectCarrera = $("alumnoCarrera");
     selectCarrera.innerHTML = '<option value="">-- Seleccionar Carrera --</option>';
+    $("campoCarreraOtra").hidden = true;
+    $("alumnoCarreraOtra").required = false;
+
     if (CARRERAS_POR_NIVEL[nivel]) {
       CARRERAS_POR_NIVEL[nivel].forEach(c => {
         const opt = document.createElement("option");
@@ -498,88 +524,221 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Registro Alumno (TBL_Alumnos_ILB)
+  $("alumnoCarrera").addEventListener("change", e => {
+    const esOtra = e.target.value === "Otro";
+    $("campoCarreraOtra").hidden = !esOtra;
+    $("alumnoCarreraOtra").required = esOtra;
+  });
+
+  $("alumnoGrupo").addEventListener("change", e => {
+    const esOtro = e.target.value === "Otro";
+    $("campoGrupoOtro").hidden = !esOtro;
+    $("alumnoGrupoOtro").required = esOtro;
+  });
+
+  /* ---------- FLUJO ALUMNO: PASO 1 CONSULTA / PASO 2 REGISTRO ---------- */
+  $("checkAlumnoMatricula").addEventListener("input", e => {
+    e.target.value = e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  });
+  $("alumnoMatricula").addEventListener("input", e => {
+    e.target.value = e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  });
+
+  $("formCheckAlumno").addEventListener("submit", e => {
+    e.preventDefault();
+    const mat = $("checkAlumnoMatricula").value.trim().toUpperCase();
+    const correo = $("checkAlumnoCorreo").value.trim().toLowerCase();
+
+    if (!/^[A-Za-z0-9]{10}$/.test(mat)) {
+      alert("La matrícula debe tener exactamente 10 caracteres (letras y/o números).");
+      return;
+    }
+
+    const encontrado = db.alumnos.find(
+      a => String(a.matricula).toUpperCase() === mat && String(a.correo_institucional || a.correo).toLowerCase() === correo
+    );
+
+    if (encontrado) {
+      $("msgNoRegistradoAlumno").hidden = true;
+      $("formAlumno").hidden = true;
+      const nombreCompleto = `${encontrado.nombre} ${encontrado.apellido_paterno} ${encontrado.apellido_materno}`;
+      const id_qr = registrarCodigoQR("alumnos", encontrado.matricula, nombreCompleto);
+      saveDatabase();
+      showQrModal({
+        id_qr,
+        nombre_completo: nombreCompleto,
+        detalle: `${encontrado.nivel} · ${encontrado.carrera} (${encontrado.grupo})`,
+        correo: encontrado.correo_institucional || encontrado.correo
+      });
+    } else {
+      $("msgNoRegistradoAlumno").hidden = false;
+      $("formAlumno").hidden = false;
+      $("alumnoMatricula").value = mat;
+      $("alumnoCorreo").value = correo;
+    }
+  });
+
   $("formAlumno").addEventListener("submit", e => {
     e.preventDefault();
     const nombre = $("alumnoNombre").value.trim();
     const apellido_paterno = $("alumnoPaterno").value.trim();
     const apellido_materno = $("alumnoMaterno").value.trim();
-    const matricula = $("alumnoMatricula").value.trim();
-    const correo_institucional = $("alumnoCorreo").value.trim();
-    const estatus = $("alumnoEstado").value;
+    const matricula = $("alumnoMatricula").value.trim().toUpperCase();
+    const correo = $("alumnoCorreo").value.trim().toLowerCase();
     const nivel = $("alumnoNivel").value;
-    const carrera = $("alumnoCarrera").value;
-    const grupo = $("alumnoGrupo").value;
+    const carreraSel = $("alumnoCarrera").value;
+    const carrera = carreraSel === "Otro" ? $("alumnoCarreraOtra").value.trim() : carreraSel;
+    const grupoSel = $("alumnoGrupo").value;
+    const grupo = grupoSel === "Otro" ? $("alumnoGrupoOtro").value.trim() : grupoSel;
 
-    if (!/^[0-9]{10}$/.test(matricula)) {
-      alert("La matrícula debe contener exactamente 10 dígitos numéricos.");
+    if (!/^[A-Za-z0-9]{10}$/.test(matricula)) {
+      alert("La matrícula debe contener exactamente 10 caracteres (letras y/o números).");
       return;
     }
 
-    const estadoObj = TBL_ESTADO.find(st => st.descripcion === estatus) || TBL_ESTADO[0];
     const nombreCompleto = `${nombre} ${apellido_paterno} ${apellido_materno}`;
+    const id_qr = registrarCodigoQR("alumnos", matricula, nombreCompleto);
 
     const alumnoRecord = {
-      id_alumno: db.TBL_Alumnos_ILB.length + 1,
+      id_alumno: db.alumnos.length + 1,
       nombre,
       apellido_paterno,
       apellido_materno,
-      grupo,
-      carrera,
-      nivel,
       matricula,
-      correo_institucional,
-      id_estado: estadoObj.id_estado,
-      estatus: estadoObj.descripcion
+      correo,
+      nivel,
+      carrera,
+      grupo,
+      codigo_qr: id_qr
     };
 
-    db.TBL_Alumnos_ILB.push(alumnoRecord);
-    const id_qr = registrarCodigoQR("TBL_Alumnos_ILB", matricula, nombreCompleto);
+    db.alumnos.push(alumnoRecord);
     saveDatabase();
 
     $("formAlumno").reset();
-    $("alumnoCarrera").innerHTML = '<option value="">-- Primero selecciona el nivel --</option>';
+    $("formCheckAlumno").reset();
+    $("formAlumno").hidden = true;
+    $("msgNoRegistradoAlumno").hidden = true;
+    $("campoCarreraOtra").hidden = true;
+    $("campoGrupoOtro").hidden = true;
 
     showQrModal({
       id_qr,
-      tabla: "TBL_Alumnos_ILB",
       nombre_completo: nombreCompleto,
-      correo: correo_institucional,
-      datos: alumnoRecord
+      detalle: `${nivel} · ${carrera} (${grupo})`,
+      correo
     });
   });
 
-  // Registro Profesor (tbl_Profesor)
+  /* ---------- FLUJO PROFESOR: PASO 1 CONSULTA / PASO 2 REGISTRO ---------- */
+  $("checkProfCredencial").addEventListener("input", e => {
+    e.target.value = e.target.value.replace(/\D/g, "");
+  });
+  $("profesorCredencial").addEventListener("input", e => {
+    e.target.value = e.target.value.replace(/\D/g, "");
+  });
+
+  $("formCheckProfesor").addEventListener("submit", e => {
+    e.preventDefault();
+    const cred = $("checkProfCredencial").value.trim();
+    const correo = $("checkProfCorreo").value.trim().toLowerCase();
+
+    if (!/^[0-9]{5}$/.test(cred)) {
+      alert("El número de credencial debe contener exactamente 5 dígitos numéricos.");
+      return;
+    }
+
+    const encontrado = db.profesores.find(
+      p => String(p.num_credencial) === cred && String(p.correo_institucional || p.correo).toLowerCase() === correo
+    );
+
+    if (encontrado) {
+      $("msgNoRegistradoProfesor").hidden = true;
+      $("formProfesor").hidden = true;
+      const nombreCompleto = `${encontrado.nombre} ${encontrado.apellido_paterno} ${encontrado.apellido_materno}`;
+      const id_qr = registrarCodigoQR("profesores", encontrado.num_credencial, nombreCompleto);
+      saveDatabase();
+      showQrModal({
+        id_qr,
+        nombre_completo: nombreCompleto,
+        detalle: `Docente · Credencial ${encontrado.num_credencial}`,
+        correo: encontrado.correo_institucional || encontrado.correo
+      });
+    } else {
+      $("msgNoRegistradoProfesor").hidden = false;
+      $("formProfesor").hidden = false;
+      $("profesorCredencial").value = cred;
+      $("profesorCorreo").value = correo;
+    }
+  });
+
   $("formProfesor").addEventListener("submit", e => {
     e.preventDefault();
     const nombre = $("profesorNombre").value.trim();
     const apellido_paterno = $("profesorPaterno").value.trim();
     const apellido_materno = $("profesorMaterno").value.trim();
     const num_credencial = $("profesorCredencial").value.trim();
-    const correo_institucional = $("profesorCorreo").value.trim();
+    const correo = $("profesorCorreo").value.trim().toLowerCase();
+
+    if (!/^[0-9]{5}$/.test(num_credencial)) {
+      alert("El número de credencial debe contener exactamente 5 dígitos numéricos.");
+      return;
+    }
+
     const nombreCompleto = `${nombre} ${apellido_paterno} ${apellido_materno}`;
+    const id_qr = registrarCodigoQR("profesores", num_credencial, nombreCompleto);
 
     const profRecord = {
-      id_profesor: db.tbl_Profesor.length + 1,
+      id_profesor: db.profesores.length + 1,
       nombre,
       apellido_paterno,
       apellido_materno,
-      correo_institucional,
-      num_credencial
+      num_credencial,
+      correo,
+      codigo_qr: id_qr
     };
 
-    db.tbl_Profesor.push(profRecord);
-    const id_qr = registrarCodigoQR("tbl_Profesor", num_credencial, nombreCompleto);
+    db.profesores.push(profRecord);
     saveDatabase();
+
     $("formProfesor").reset();
+    $("formCheckProfesor").reset();
+    $("formProfesor").hidden = true;
+    $("msgNoRegistradoProfesor").hidden = true;
 
     showQrModal({
       id_qr,
-      tabla: "tbl_Profesor",
       nombre_completo: nombreCompleto,
-      correo: correo_institucional,
-      datos: profRecord
+      detalle: `Docente · Credencial ${num_credencial}`,
+      correo
     });
+  });
+
+  /* ---------- FLUJO INVITADO PÚBLICO: VALIDACIÓN ---------- */
+  $("formCheckInvitado").addEventListener("submit", e => {
+    e.preventDefault();
+    const nombreBuscado = $("checkInvNombre").value.trim().toLowerCase();
+    const correoBuscado = $("checkInvCorreo").value.trim().toLowerCase();
+
+    const encontrado = db.invitados.find(
+      inv => String(inv.correo).toLowerCase() === correoBuscado &&
+             String(inv.nombre).toLowerCase().includes(nombreBuscado)
+    );
+
+    if (encontrado) {
+      $("msgNoRegistradoInvitado").hidden = true;
+      const nombreCompleto = `${encontrado.nombre} ${encontrado.apellido_paterno} ${encontrado.apellido_materno}`;
+      const id_qr = encontrado.codigo_qr || registrarCodigoQR("invitados", encontrado.id_invitado, nombreCompleto);
+      saveDatabase();
+      showQrModal({
+        id_qr,
+        nombre_completo: nombreCompleto,
+        detalle: "Invitado Especial",
+        correo: encontrado.correo
+      });
+    } else {
+      $("msgNoRegistradoInvitado").hidden = false;
+    }
   });
 
   /* ---------- GENERAR INVITADO (SOLO ADMIN) ---------- */
@@ -588,39 +747,356 @@ document.addEventListener("DOMContentLoaded", () => {
     const nombre = $("guestNombre").value.trim();
     const apellido_paterno = $("guestPaterno").value.trim();
     const apellido_materno = $("guestMaterno").value.trim();
-    const correo = $("guestCorreo").value.trim();
+    const correo = $("guestCorreo").value.trim().toLowerCase();
     const nombreCompleto = `${nombre} ${apellido_paterno} ${apellido_materno}`;
-    const nuevoId = db.tbl_invitado.length + 1;
+    const nuevoId = db.invitados.length + 1;
+    const id_qr = registrarCodigoQR("invitados", nuevoId, nombreCompleto);
 
     const guestRecord = {
       id_invitado: nuevoId,
       nombre,
       apellido_paterno,
       apellido_materno,
-      correo
+      correo,
+      codigo_qr: id_qr
     };
 
-    db.tbl_invitado.push(guestRecord);
-    const id_qr = registrarCodigoQR("tbl_invitado", `INV-${nuevoId}`, nombreCompleto);
+    db.invitados.push(guestRecord);
     saveDatabase();
     $("formGuest").reset();
 
     showQrModal({
       id_qr,
-      tabla: "tbl_invitado",
       nombre_completo: nombreCompleto,
-      correo,
-      datos: guestRecord
+      detalle: "Invitado Especial",
+      correo
     });
   });
 
-  /* ---------- MODAL QR ---------- */
+  /* ---------- GESTIÓN DE BASE DE DATOS (SOLO ADMIN) ---------- */
+  function actualizarFiltrosAlumnosDb() {
+    const selCarrera = $("dbFiltroCarrera");
+    const selGrupo = $("dbFiltroGrupo");
+    const carrerasUnicas = [...new Set(db.alumnos.map(a => a.carrera).filter(Boolean))];
+    const gruposUnicos = [...new Set(db.alumnos.map(a => a.grupo).filter(Boolean))];
+
+    const valC = selCarrera.value;
+    const valG = selGrupo.value;
+
+    selCarrera.innerHTML = '<option value="">Todas las Carreras</option>';
+    carrerasUnicas.forEach(c => {
+      const o = document.createElement("option");
+      o.value = c; o.textContent = c;
+      selCarrera.appendChild(o);
+    });
+    selCarrera.value = carrerasUnicas.includes(valC) ? valC : "";
+
+    selGrupo.innerHTML = '<option value="">Todos los Grupos</option>';
+    gruposUnicos.forEach(g => {
+      const o = document.createElement("option");
+      o.value = g; o.textContent = g;
+      selGrupo.appendChild(o);
+    });
+    selGrupo.value = gruposUnicos.includes(valG) ? valG : "";
+  }
+
+  function renderBaseDatos() {
+    const thead = $("theadDb");
+    const tbody = $("tbodyDb");
+    const texto = $("dbBuscar").value.trim().toLowerCase();
+
+    $("filtrosDbAlumnos").hidden = dbVistaActual !== "alumnos";
+    thead.replaceChildren();
+    tbody.replaceChildren();
+
+    if (dbVistaActual === "alumnos") {
+      actualizarFiltrosAlumnosDb();
+      const fNivel = $("dbFiltroNivel").value;
+      const fCarrera = $("dbFiltroCarrera").value;
+      const fGrupo = $("dbFiltroGrupo").value;
+
+      thead.innerHTML = `<tr>
+        <th>Matrícula</th>
+        <th>Nombre Completo</th>
+        <th>Correo</th>
+        <th>Nivel</th>
+        <th>Carrera</th>
+        <th>Grupo</th>
+        <th>Acciones</th>
+      </tr>`;
+
+      const filtrados = db.alumnos
+        .map((item, idx) => ({ item, idx }))
+        .filter(({ item }) => {
+          const correo = item.correo || item.correo_institucional || "";
+          const nombreFull = `${item.nombre} ${item.apellido_paterno} ${item.apellido_materno}`.toLowerCase();
+          if (fNivel && item.nivel !== fNivel) return false;
+          if (fCarrera && item.carrera !== fCarrera) return false;
+          if (fGrupo && item.grupo !== fGrupo) return false;
+          if (texto && !nombreFull.includes(texto) && !String(item.matricula).toLowerCase().includes(texto) && !correo.toLowerCase().includes(texto)) return false;
+          return true;
+        });
+
+      $("resumenDb").textContent = `Mostrando ${filtrados.length} de ${db.alumnos.length} alumnos registrados.`;
+      if (!filtrados.length) {
+        tbody.appendChild(filaVacia(7, "No hay alumnos registrados que coincidan con los filtros."));
+        return;
+      }
+
+      filtrados.forEach(({ item, idx }) => {
+        const nombreFull = `${item.nombre} ${item.apellido_paterno} ${item.apellido_materno}`;
+        const correo = item.correo || item.correo_institucional || "";
+        const tr = document.createElement("tr");
+        tr.append(
+          celda(item.matricula),
+          celda(nombreFull),
+          celda(correo),
+          celda(item.nivel),
+          celda(item.carrera),
+          celda(item.grupo),
+          celdaAccionesDb("alumnos", idx)
+        );
+        tbody.appendChild(tr);
+      });
+
+    } else if (dbVistaActual === "profesores") {
+      thead.innerHTML = `<tr>
+        <th>Credencial</th>
+        <th>Nombre Completo</th>
+        <th>Correo</th>
+        <th>Acciones</th>
+      </tr>`;
+
+      const filtrados = db.profesores
+        .map((item, idx) => ({ item, idx }))
+        .filter(({ item }) => {
+          const correo = item.correo || item.correo_institucional || "";
+          const nombreFull = `${item.nombre} ${item.apellido_paterno} ${item.apellido_materno}`.toLowerCase();
+          if (texto && !nombreFull.includes(texto) && !String(item.num_credencial).includes(texto) && !correo.toLowerCase().includes(texto)) return false;
+          return true;
+        });
+
+      $("resumenDb").textContent = `Mostrando ${filtrados.length} de ${db.profesores.length} profesores registrados.`;
+      if (!filtrados.length) {
+        tbody.appendChild(filaVacia(4, "No hay profesores registrados."));
+        return;
+      }
+
+      filtrados.forEach(({ item, idx }) => {
+        const nombreFull = `${item.nombre} ${item.apellido_paterno} ${item.apellido_materno}`;
+        const correo = item.correo || item.correo_institucional || "";
+        const tr = document.createElement("tr");
+        tr.append(
+          celda(item.num_credencial),
+          celda(nombreFull),
+          celda(correo),
+          celdaAccionesDb("profesores", idx)
+        );
+        tbody.appendChild(tr);
+      });
+
+    } else {
+      thead.innerHTML = `<tr>
+        <th>ID</th>
+        <th>Nombre Completo</th>
+        <th>Correo</th>
+        <th>Acciones</th>
+      </tr>`;
+
+      const filtrados = db.invitados
+        .map((item, idx) => ({ item, idx }))
+        .filter(({ item }) => {
+          const nombreFull = `${item.nombre} ${item.apellido_paterno} ${item.apellido_materno}`.toLowerCase();
+          if (texto && !nombreFull.includes(texto) && !String(item.correo).toLowerCase().includes(texto)) return false;
+          return true;
+        });
+
+      $("resumenDb").textContent = `Mostrando ${filtrados.length} de ${db.invitados.length} invitados registrados.`;
+      if (!filtrados.length) {
+        tbody.appendChild(filaVacia(4, "No hay invitados registrados."));
+        return;
+      }
+
+      filtrados.forEach(({ item, idx }) => {
+        const nombreFull = `${item.nombre} ${item.apellido_paterno} ${item.apellido_materno}`;
+        const tr = document.createElement("tr");
+        tr.append(
+          celda(`INV-${idx + 1}`),
+          celda(nombreFull),
+          celda(item.correo),
+          celdaAccionesDb("invitados", idx)
+        );
+        tbody.appendChild(tr);
+      });
+    }
+  }
+
+  function celdaAccionesDb(tipo, idx) {
+    const td = document.createElement("td");
+
+    const btnQr = document.createElement("button");
+    btnQr.type = "button";
+    btnQr.className = "btn-mini qr";
+    btnQr.title = "Ver QR";
+    btnQr.innerHTML = '<i class="fas fa-qrcode"></i>';
+    btnQr.addEventListener("click", () => verQrDesdeDb(tipo, idx));
+
+    const btnEdit = document.createElement("button");
+    btnEdit.type = "button";
+    btnEdit.className = "btn-mini edit";
+    btnEdit.title = "Editar";
+    btnEdit.innerHTML = '<i class="fas fa-edit"></i>';
+    btnEdit.addEventListener("click", () => abrirCrudModal(tipo, idx));
+
+    const btnDel = document.createElement("button");
+    btnDel.type = "button";
+    btnDel.className = "btn-mini del";
+    btnDel.title = "Eliminar";
+    btnDel.innerHTML = '<i class="fas fa-trash"></i>';
+    btnDel.addEventListener("click", () => {
+      if (confirm("¿Seguro que deseas eliminar este registro de la base de datos?")) {
+        db[tipo].splice(idx, 1);
+        saveDatabase();
+        renderBaseDatos();
+      }
+    });
+
+    td.append(btnQr, btnEdit, btnDel);
+    return td;
+  }
+
+  function verQrDesdeDb(tipo, idx) {
+    const reg = db[tipo][idx];
+    if (!reg) return;
+    const nombreCompleto = `${reg.nombre} ${reg.apellido_paterno} ${reg.apellido_materno}`;
+    let ref = "";
+    let detalle = "";
+    if (tipo === "alumnos") {
+      ref = reg.matricula;
+      detalle = `${reg.nivel} · ${reg.carrera} (${reg.grupo})`;
+    } else if (tipo === "profesores") {
+      ref = reg.num_credencial;
+      detalle = `Docente · Credencial ${reg.num_credencial}`;
+    } else {
+      ref = reg.id_invitado || (idx + 1);
+      detalle = "Invitado Especial";
+    }
+    const id_qr = reg.codigo_qr || registrarCodigoQR(tipo, ref, nombreCompleto);
+    showQrModal({
+      id_qr,
+      nombre_completo: nombreCompleto,
+      detalle,
+      correo: reg.correo || reg.correo_institucional || ""
+    });
+  }
+
+  // Sub-pestañas BD
+  ["dbTabAlumnos", "dbTabProfesores", "dbTabInvitados"].forEach(id => {
+    $(id).addEventListener("click", () => {
+      ["dbTabAlumnos", "dbTabProfesores", "dbTabInvitados"].forEach(t => $(t).classList.remove("activo"));
+      $(id).classList.add("activo");
+      dbVistaActual = id === "dbTabAlumnos" ? "alumnos" : id === "dbTabProfesores" ? "profesores" : "invitados";
+      renderBaseDatos();
+    });
+  });
+
+  ["dbFiltroNivel", "dbFiltroCarrera", "dbFiltroGrupo"].forEach(id => {
+    $(id).addEventListener("change", renderBaseDatos);
+  });
+  $("dbBuscar").addEventListener("input", renderBaseDatos);
+
+  /* Modal CRUD (Agregar / Editar) */
+  function abrirCrudModal(tipo, idx = null) {
+    $("crudTipo").value = tipo;
+    $("crudIndex").value = idx !== null ? idx : "";
+    $("crudModalTitle").textContent = idx !== null ? "Modificar Registro" : "Nuevo Registro";
+
+    document.querySelectorAll(".crud-alumno").forEach(el => el.hidden = tipo !== "alumnos");
+    document.querySelectorAll(".crud-profesor").forEach(el => el.hidden = tipo !== "profesores");
+
+    $("crudMatricula").required = tipo === "alumnos";
+    $("crudCarrera").required = tipo === "alumnos";
+    $("crudGrupo").required = tipo === "alumnos";
+    $("crudCredencial").required = tipo === "profesores";
+
+    if (idx !== null) {
+      const item = db[tipo][idx];
+      $("crudNombre").value = item.nombre || "";
+      $("crudPaterno").value = item.apellido_paterno || "";
+      $("crudMaterno").value = item.apellido_materno || "";
+      $("crudCorreo").value = item.correo || item.correo_institucional || "";
+      if (tipo === "alumnos") {
+        $("crudMatricula").value = item.matricula || "";
+        $("crudNivel").value = item.nivel || "Superior";
+        $("crudCarrera").value = item.carrera || "";
+        $("crudGrupo").value = item.grupo || "";
+      } else if (tipo === "profesores") {
+        $("crudCredencial").value = item.num_credencial || "";
+      }
+    } else {
+      $("formCrud").reset();
+    }
+
+    $("crudModal").hidden = false;
+  }
+
+  $("btnDbNuevo").addEventListener("click", () => abrirCrudModal(dbVistaActual, null));
+  $("btnCloseCrud").addEventListener("click", () => { $("crudModal").hidden = true; });
+
+  $("formCrud").addEventListener("submit", e => {
+    e.preventDefault();
+    const tipo = $("crudTipo").value;
+    const idxStr = $("crudIndex").value;
+    const nombre = $("crudNombre").value.trim();
+    const apellido_paterno = $("crudPaterno").value.trim();
+    const apellido_materno = $("crudMaterno").value.trim();
+    const correo = $("crudCorreo").value.trim().toLowerCase();
+    const nombreCompleto = `${nombre} ${apellido_paterno} ${apellido_materno}`;
+
+    let nuevoObj = { nombre, apellido_paterno, apellido_materno, correo };
+
+    if (tipo === "alumnos") {
+      const matricula = $("crudMatricula").value.trim().toUpperCase();
+      if (!/^[A-Za-z0-9]{10}$/.test(matricula)) {
+        alert("La matrícula debe tener 10 caracteres (letras y/o números).");
+        return;
+      }
+      nuevoObj.matricula = matricula;
+      nuevoObj.nivel = $("crudNivel").value;
+      nuevoObj.carrera = $("crudCarrera").value.trim();
+      nuevoObj.grupo = $("crudGrupo").value.trim();
+      nuevoObj.codigo_qr = registrarCodigoQR("alumnos", matricula, nombreCompleto);
+    } else if (tipo === "profesores") {
+      const num_credencial = $("crudCredencial").value.trim();
+      if (!/^[0-9]{5}$/.test(num_credencial)) {
+        alert("El número de credencial debe tener exactamente 5 números.");
+        return;
+      }
+      nuevoObj.num_credencial = num_credencial;
+      nuevoObj.codigo_qr = registrarCodigoQR("profesores", num_credencial, nombreCompleto);
+    } else {
+      const idInv = idxStr !== "" ? (db.invitados[Number(idxStr)].id_invitado || Number(idxStr) + 1) : db.invitados.length + 1;
+      nuevoObj.id_invitado = idInv;
+      nuevoObj.codigo_qr = registrarCodigoQR("invitados", idInv, nombreCompleto);
+    }
+
+    if (idxStr !== "") {
+      db[tipo][Number(idxStr)] = { ...db[tipo][Number(idxStr)], ...nuevoObj };
+    } else {
+      db[tipo].push(nuevoObj);
+    }
+
+    saveDatabase();
+    $("crudModal").hidden = true;
+    renderBaseDatos();
+  });
+
+  /* ---------- MODAL QR (LIMPIO SIN CORREO, NI TABLA, NI JSON) ---------- */
   function showQrModal(payload) {
     currentModalPayload = payload;
     $("modalBadgeQr").textContent = payload.id_qr;
     $("modalTitle").textContent = payload.nombre_completo;
-    $("modalSub").textContent = `Tabla: ${payload.tabla}`;
-    $("modalJson").textContent = JSON.stringify(payload, null, 2);
+    $("modalSub").textContent = payload.detalle || "";
 
     const container = $("qrContainer");
     container.innerHTML = "";
@@ -629,10 +1105,10 @@ document.addEventListener("DOMContentLoaded", () => {
       width: 210,
       height: 210,
       type: "canvas",
-      data: JSON.stringify(payload),
-      dotsOptions: { color: "#7A003C", type: "rounded" },
+      data: payload.id_qr,
+      dotsOptions: { color: "#4c1d95", type: "rounded" },
       backgroundOptions: { color: "#ffffff" },
-      cornersSquareOptions: { color: "#2471A3", type: "extra-rounded" }
+      cornersSquareOptions: { color: "#0284c7", type: "extra-rounded" }
     });
 
     currentQrObj.append(container);
@@ -659,15 +1135,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const cuerpo = encodeURIComponent(
       `Hola ${currentModalPayload.nombre_completo},\n\n` +
       `Se ha generado tu código QR de acceso para el Instituto Leonardo Bravo (Plantel Centro).\n\n` +
-      `• Folio QR (tbl_codigos_qr): ${currentModalPayload.id_qr}\n` +
-      `• Registro en: ${currentModalPayload.tabla}\n` +
+      `• Folio QR: ${currentModalPayload.id_qr}\n` +
       `\n(Adjunta en este correo la imagen PNG del código QR que se acaba de descargar).\n\n` +
       `Atentamente,\nControl de Acceso · Semana de Informática XXXIII`
     );
     window.open(`mailto:${currentModalPayload.correo}?subject=${asunto}&body=${cuerpo}`, "_blank");
   });
 
-  /* ---------- NIEVE Y LUCES NAVIDEÑAS ---------- */
+  /* ---------- PARTÍCULAS / NIEVE Y LUCES ---------- */
   (function nieve() {
     const canvas = $("nieve"), ctx = canvas.getContext("2d"), btn = $("nieveBtn");
     const reducir = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -678,7 +1153,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const nuevo = inicial => ({
       x: Math.random() * w, y: inicial ? Math.random() * h : -10,
-      r: 1.5 + Math.random() * 3.2, v: 0.5 + Math.random() * 1.1,
+      r: 1.5 + Math.random() * 2.8, v: 0.4 + Math.random() * 0.9,
       a: Math.random() * 6.28, s: 0.01 + Math.random() * 0.02
     });
 
@@ -691,8 +1166,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     function cuadro() {
       ctx.clearRect(0, 0, w, h);
-      ctx.fillStyle = "rgba(255,255,255,.95)";
-      ctx.shadowColor = "rgba(80,120,170,.6)"; ctx.shadowBlur = 4;
+      ctx.fillStyle = "rgba(165, 243, 252, 0.85)";
+      ctx.shadowColor = "rgba(139, 92, 246, 0.75)"; ctx.shadowBlur = 6;
       copos.forEach((c, i) => {
         c.a += c.s; c.y += c.v * (0.5 + c.r / 4); c.x += Math.sin(c.a) * 0.6;
         ctx.beginPath(); ctx.arc(c.x, c.y, c.r, 0, 6.283); ctx.fill();
@@ -716,7 +1191,7 @@ document.addEventListener("DOMContentLoaded", () => {
   })();
 
   function luces() {
-    const cont = $("luces"), colores = ["#ff3b3b", "#ffd23f", "#3bd16f", "#4aa8ff"];
+    const cont = $("luces"), colores = ["#a855f7", "#00e5ff", "#38bdf8", "#ec4899"];
     cont.replaceChildren();
     const n = Math.max(8, Math.floor(window.innerWidth / 46));
     for (let i = 0; i < n; i++) {

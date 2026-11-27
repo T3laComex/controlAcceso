@@ -642,10 +642,11 @@ tr.fila-alerta { background: rgba(239, 68, 68, 0.15) !important; box-shadow: ins
   margin-bottom: 16px;
 }
 
+.qr-box canvas { max-width: 100%; height: auto; } /* se encoge en celulares */
 .qr-box {
   display: flex;
   justify-content: center;
-  padding: 16px;
+  padding: 6px;
   background: #ffffff;
   border: 2px solid var(--morado);
   border-radius: 16px;

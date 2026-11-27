@@ -918,6 +918,27 @@ document.addEventListener("DOMContentLoaded", () => {
   }));
 
   /* ---------- MODAL QR ---------- */
+  const QR_PANTALLA = 300;  // px en el modal
+  const QR_DESCARGA = 1000; // px del PNG descargado (nítido al imprimir)
+
+  function crearQr(data, tamano) {
+    return new QRCodeStyling({
+      width: tamano,
+      height: tamano,
+      type: "canvas",
+      data,
+      margin: Math.round(tamano * 0.05), // borde blanco dentro del PNG: los lectores lo necesitan
+      image: "qrcripto-qr.png",
+      qrOptions: { errorCorrectionLevel: "H" }, // tolera ~30% tapado por el logo
+      imageOptions: { margin: 4, imageSize: 0.35, hideBackgroundDots: true },
+      // Estilo cuadrado: con logo al centro, el redondeado falla en algunos lectores.
+      dotsOptions: { color: "#4c1d95", type: "square" },
+      backgroundOptions: { color: "#ffffff" },
+      cornersSquareOptions: { color: "#0284c7", type: "square" },
+      cornersDotOptions: { color: "#0284c7", type: "square" }
+    });
+  }
+
   function showQrModal(payload) {
     currentModalPayload = payload;
     $("modalBadgeQr").textContent = payload.id_qr;
@@ -926,19 +947,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const container = $("qrContainer");
     container.innerHTML = "";
-    currentQrObj = new QRCodeStyling({
-      width: 210,
-      height: 210,
-      type: "canvas",
-      data: payload.id_qr,
-      margin: 12, // borde blanco dentro del PNG: los lectores lo necesitan
-      image: "qrcripto.png",
-      qrOptions: { errorCorrectionLevel: "H" }, // tolera ~30% tapado por el logo
-      imageOptions: { margin: 4, imageSize: 0.35, hideBackgroundDots: true },
-      dotsOptions: { color: "#4c1d95", type: "rounded" },
-      backgroundOptions: { color: "#ffffff" },
-      cornersSquareOptions: { color: "#0284c7", type: "extra-rounded" }
-    });
+    currentQrObj = crearQr(payload.id_qr, QR_PANTALLA);
     currentQrObj.append(container);
     $("qrModal").hidden = false;
   }
@@ -949,8 +958,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   $("btnDownloadQR").addEventListener("click", () => {
-    if (currentQrObj && currentModalPayload) {
-      currentQrObj.download({ name: `${currentModalPayload.id_qr}`, extension: "png" });
+    if (currentModalPayload) {
+      crearQr(currentModalPayload.id_qr, QR_DESCARGA)
+        .download({ name: `${currentModalPayload.id_qr}`, extension: "png" });
     }
   });
 

@@ -3,8 +3,8 @@
  *
  * Colecciones (ver firestore.rules):
  *   alumnos/{matricula}     { matricula, correo, codigoQr: "ALU-<matricula>", createdAt }
- *   profesores/{matricula}  { matricula, nombre, apellidos, correo, codigoQr: "PROF-<matricula>", createdAt }
- *   invitados/{n}           { folio: n, nombre, apellidos, codigoQr: "INV-<n>", createdAt }
+ *   profesores/{credencial} { credencial, nombre, apellidos, correo, codigoQr: "PROF-<credencial>", createdAt }
+ *   invitados/{n}           { folio: n, nombre, correo, codigoQr: "INV-<n>", createdAt }
  *   contadores/invitados    { n }  -> último folio asignado
  *   accesos/{id}            { id, nombre, grupo, estado, fechaHora }  (solo admin)
  *
@@ -28,7 +28,7 @@ const LIMITES_MIN = { SANITARIO: 10, BANO: 10, BREAK: 30, COFFEE_SALIDA: 30 };
 const ETIQUETA_CORTA = { SANITARIO: "sanitario", BANO: "sanitario", BREAK: "break", COFFEE_SALIDA: "break" };
 
 const RE_MATRICULA_ALUMNO = /^[A-Z0-9]{10}$/;
-const RE_MATRICULA_PROFESOR = /^[A-Z0-9]{3,15}$/;
+const RE_CREDENCIAL = /^[0-9]{5}$/;
 const RE_CORREO = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -149,17 +149,22 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (error) {
       if (error.code !== "permission-denied") throw error;
     }
+    return (await consultarConCorreo(coleccion, id, datos.correo)) ? "existente" : "otroCorreo";
+  }
+
+  /** true si el documento existe y su correo coincide (sin poder leerlo). */
+  async function consultarConCorreo(coleccion, id, correo) {
     try {
-      await ref.update({ correo: datos.correo, ultimaConsulta: marcaTiempo() });
-      return "existente";
+      await fs.collection(coleccion).doc(id).update({ correo, ultimaConsulta: marcaTiempo() });
+      return true;
     } catch (error) {
-      if (error.code === "permission-denied" || error.code === "not-found") return "otroCorreo";
+      if (error.code === "permission-denied" || error.code === "not-found") return false;
       throw error;
     }
   }
 
   /** Asigna el siguiente folio de invitado en una transacción (sin repetir números). */
-  async function registrarInvitado(nombre, apellidos) {
+  async function registrarInvitado(nombre, correo) {
     return fs.runTransaction(async tx => {
       const snap = await tx.get(contadorRef());
       const n = (snap.exists ? snap.data().n : 0) + 1;
@@ -168,7 +173,7 @@ document.addEventListener("DOMContentLoaded", () => {
       tx.set(fs.collection("invitados").doc(id), {
         folio: n,
         nombre,
-        apellidos,
+        correo,
         codigoQr: `INV-${id}`,
         createdAt: marcaTiempo()
       });
@@ -188,6 +193,7 @@ document.addEventListener("DOMContentLoaded", () => {
     ["tabAlumno", "tabProfesor", "tabInvitadoPub"].forEach(id => $(id).classList.remove("activo"));
     ["bloqueAlumno", "bloqueProfesor", "bloqueInvitadoPub"].forEach(id => { $(id).hidden = true; });
     ocultarMensaje();
+    reiniciarProfesor();
     if (tab === "alumno") {
       $("tabAlumno").classList.add("activo");
       $("bloqueAlumno").hidden = false;
@@ -203,8 +209,10 @@ document.addEventListener("DOMContentLoaded", () => {
   $("tabProfesor").addEventListener("click", () => activarTabRegistro("profesor"));
   $("tabInvitadoPub").addEventListener("click", () => activarTabRegistro("invitado"));
 
-  ["alumnoMatricula", "profesorMatricula", "crudMatricula"].forEach(id => {
-    $(id).addEventListener("input", e => { e.target.value = limpiarMatricula(e.target.value); });
+  $("alumnoMatricula").addEventListener("input", e => { e.target.value = limpiarMatricula(e.target.value); });
+  $("profesorCredencial").addEventListener("input", e => { e.target.value = e.target.value.replace(/\D/g, ""); });
+  $("crudMatricula").addEventListener("input", e => {
+    e.target.value = $("crudTipo").value === "profesores" ? e.target.value.replace(/\D/g, "") : limpiarMatricula(e.target.value);
   });
 
   /* ---------- ALUMNO: matrícula + correo ---------- */
@@ -237,52 +245,87 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }));
 
-  /* ---------- PROFESOR: matrícula + nombre + apellidos + correo ---------- */
-  $("formProfesor").addEventListener("submit", conBotonOcupado($("formProfesor"), async () => {
-    const matricula = limpiarMatricula($("profesorMatricula").value);
+  /* ---------- PROFESOR: paso 1 credencial + correo; paso 2 nombre + apellidos ---------- */
+  let profesorPendiente = null; // { credencial, correo } validados en el paso 1
+
+  function reiniciarProfesor() {
+    profesorPendiente = null;
+    $("formProfesor").reset();
+    $("formProfesor").hidden = true;
+    $("profesorCredencial").readOnly = false;
+    $("profesorCorreo").readOnly = false;
+  }
+
+  $("formCheckProfesor").addEventListener("submit", conBotonOcupado($("formCheckProfesor"), async () => {
+    const credencial = $("profesorCredencial").value.replace(/\D/g, "");
     const correo = limpiarCorreo($("profesorCorreo").value);
-    const nombre = limpiar($("profesorNombre").value);
-    const apellidos = limpiar($("profesorApellidos").value);
-    if (!RE_MATRICULA_PROFESOR.test(matricula)) {
-      mostrarMensaje("La matrícula debe tener entre 3 y 15 letras o números.", "error");
+    if (!RE_CREDENCIAL.test(credencial)) {
+      mostrarMensaje("El número de credencial debe contener exactamente 5 dígitos.", "error");
       return;
     }
-    if (!RE_CORREO.test(correo) || !nombre || !apellidos) {
-      mostrarMensaje("Completa nombre, apellidos y un correo válido.", "error");
+    if (!RE_CORREO.test(correo)) {
+      mostrarMensaje("Escribe un correo válido.", "error");
       return;
     }
     ocultarMensaje();
     try {
-      const codigoQr = `PROF-${matricula}`;
-      const resultado = await registrarOConsultar("profesores", matricula, { matricula, nombre, apellidos, correo, codigoQr });
-      if (resultado === "otroCorreo") {
-        mostrarMensaje("Esa matrícula ya está registrada con otro correo. Si es un error, acude con el administrador.", "error");
+      if (await consultarConCorreo("profesores", credencial, correo)) {
+        reiniciarProfesor();
+        $("formCheckProfesor").reset();
+        mostrarMensaje("Ya estabas registrado. Este es tu código QR.");
+        showQrModal({ id_qr: `PROF-${credencial}`, nombre_completo: `Profesor · ${credencial}`, detalle: `Docente · Credencial ${credencial}`, correo });
         return;
       }
-      mostrarMensaje(resultado === "nuevo"
-        ? "Registro exitoso. Descarga tu código QR."
-        : "Ya estabas registrado. Este es tu código QR.");
-      $("formProfesor").reset();
-      showQrModal({ id_qr: codigoQr, nombre_completo: `${nombre} ${apellidos}`, detalle: `Docente · Matrícula ${matricula}`, correo });
+      profesorPendiente = { credencial, correo };
+      $("profesorCredencial").readOnly = true;
+      $("profesorCorreo").readOnly = true;
+      $("formProfesor").hidden = false;
+      mostrarMensaje("No te encuentras registrado. Completa tu nombre y apellidos para generar tu código QR.");
+      $("profesorNombre").focus();
     } catch (error) {
       mostrarMensaje(errorFirebase(error), "error");
     }
   }));
 
-  /* ---------- INVITADO: nombre + apellidos -> folio ---------- */
-  $("formInvitadoPub").addEventListener("submit", conBotonOcupado($("formInvitadoPub"), async () => {
-    const nombre = limpiar($("invitadoNombre").value);
-    const apellidos = limpiar($("invitadoApellidos").value);
+  $("formProfesor").addEventListener("submit", conBotonOcupado($("formProfesor"), async () => {
+    if (!profesorPendiente) return;
+    const { credencial, correo } = profesorPendiente;
+    const nombre = limpiar($("profesorNombre").value);
+    const apellidos = limpiar($("profesorApellidos").value);
     if (!nombre || !apellidos) {
       mostrarMensaje("Escribe tu nombre y apellidos.", "error");
       return;
     }
+    try {
+      const codigoQr = `PROF-${credencial}`;
+      const resultado = await registrarOConsultar("profesores", credencial, { credencial, nombre, apellidos, correo, codigoQr });
+      if (resultado === "otroCorreo") {
+        mostrarMensaje("Esa credencial ya está registrada con otro correo. Si es un error, acude con el administrador.", "error");
+        return;
+      }
+      reiniciarProfesor();
+      $("formCheckProfesor").reset();
+      mostrarMensaje(resultado === "nuevo" ? "Registro exitoso. Descarga tu código QR." : "Ya estabas registrado. Este es tu código QR.");
+      showQrModal({ id_qr: codigoQr, nombre_completo: `${nombre} ${apellidos}`, detalle: `Docente · Credencial ${credencial}`, correo });
+    } catch (error) {
+      mostrarMensaje(errorFirebase(error), "error");
+    }
+  }));
+
+  /* ---------- INVITADO: nombre + correo -> folio ---------- */
+  $("formInvitadoPub").addEventListener("submit", conBotonOcupado($("formInvitadoPub"), async () => {
+    const nombre = limpiar($("invitadoNombre").value);
+    const correo = limpiarCorreo($("invitadoCorreo").value);
+    if (!nombre || !RE_CORREO.test(correo)) {
+      mostrarMensaje("Escribe tu nombre y un correo válido.", "error");
+      return;
+    }
     ocultarMensaje();
     try {
-      const folio = await registrarInvitado(nombre, apellidos);
-      mostrarMensaje(`Pase generado con folio INV-${folio}. Descarga tu código QR.`);
+      const folio = await registrarInvitado(nombre, correo);
+      mostrarMensaje(`Pase generado con folio INV-${folio}. Descárgalo: cada registro de invitado crea un folio nuevo.`);
       $("formInvitadoPub").reset();
-      showQrModal({ id_qr: `INV-${folio}`, nombre_completo: `${nombre} ${apellidos}`, detalle: `Invitado · Folio ${folio}`, correo: "" });
+      showQrModal({ id_qr: `INV-${folio}`, nombre_completo: nombre, detalle: `Invitado · Folio ${folio}`, correo });
     } catch (error) {
       mostrarMensaje(errorFirebase(error), "error");
     }
@@ -662,12 +705,12 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ---------- GENERAR INVITADO (SOLO ADMIN) ---------- */
   $("formGuest").addEventListener("submit", conBotonOcupado($("formGuest"), async () => {
     const nombre = limpiar($("guestNombre").value);
-    const apellidos = limpiar($("guestApellidos").value);
-    if (!nombre || !apellidos) return;
+    const correo = limpiarCorreo($("guestCorreo").value);
+    if (!nombre || !RE_CORREO.test(correo)) { alert("Escribe el nombre y un correo válido."); return; }
     try {
-      const folio = await registrarInvitado(nombre, apellidos);
+      const folio = await registrarInvitado(nombre, correo);
       $("formGuest").reset();
-      showQrModal({ id_qr: `INV-${folio}`, nombre_completo: `${nombre} ${apellidos}`, detalle: `Invitado · Folio ${folio}`, correo: "" });
+      showQrModal({ id_qr: `INV-${folio}`, nombre_completo: nombre, detalle: `Invitado · Folio ${folio}`, correo });
     } catch (error) {
       alert(errorFirebase(error));
     }
@@ -706,14 +749,14 @@ document.addEventListener("DOMContentLoaded", () => {
       texto: i => `${i._id} ${i.correo}`
     },
     profesores: {
-      titulos: ["Matrícula", "Nombre Completo", "Correo", "Código QR", "Registro"],
-      valores: i => [i.matricula || i._id, `${i.nombre} ${i.apellidos}`, i.correo, i.codigoQr, fechaRegistro(i)],
+      titulos: ["Credencial", "Nombre Completo", "Correo", "Código QR", "Registro"],
+      valores: i => [i.credencial || i._id, `${i.nombre} ${i.apellidos}`, i.correo, i.codigoQr, fechaRegistro(i)],
       texto: i => `${i._id} ${i.nombre} ${i.apellidos} ${i.correo}`
     },
     invitados: {
-      titulos: ["Folio", "Nombre Completo", "Código QR", "Registro"],
-      valores: i => [i.folio, `${i.nombre} ${i.apellidos}`, i.codigoQr, fechaRegistro(i)],
-      texto: i => `${i.folio} INV-${i.folio} ${i.nombre} ${i.apellidos}`
+      titulos: ["Folio", "Nombre", "Correo", "Código QR", "Registro"],
+      valores: i => [i.folio, i.nombre, i.correo, i.codigoQr, fechaRegistro(i)],
+      texto: i => `${i.folio} INV-${i.folio} ${i.nombre} ${i.correo}`
     }
   };
 
@@ -780,9 +823,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (tipo === "alumnos") {
       showQrModal({ id_qr: item.codigoQr || `ALU-${item._id}`, nombre_completo: `Alumno · ${item._id}`, detalle: item.correo, correo: item.correo });
     } else if (tipo === "profesores") {
-      showQrModal({ id_qr: item.codigoQr || `PROF-${item._id}`, nombre_completo: `${item.nombre} ${item.apellidos}`, detalle: `Docente · Matrícula ${item._id}`, correo: item.correo });
+      showQrModal({ id_qr: item.codigoQr || `PROF-${item._id}`, nombre_completo: `${item.nombre} ${item.apellidos}`, detalle: `Docente · Credencial ${item._id}`, correo: item.correo });
     } else {
-      showQrModal({ id_qr: item.codigoQr || `INV-${item._id}`, nombre_completo: `${item.nombre} ${item.apellidos}`, detalle: `Invitado · Folio ${item.folio}`, correo: "" });
+      showQrModal({ id_qr: item.codigoQr || `INV-${item._id}`, nombre_completo: item.nombre, detalle: `Invitado · Folio ${item.folio}`, correo: item.correo || "" });
     }
   }
 
@@ -805,15 +848,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const conMatricula = tipo !== "invitados";
     const conNombre = tipo !== "alumnos";
-    document.querySelectorAll(".crud-matricula, .crud-correo").forEach(el => { el.hidden = !conMatricula; });
+    const conApellidos = tipo === "profesores";
+    document.querySelectorAll(".crud-matricula").forEach(el => { el.hidden = !conMatricula; });
     document.querySelectorAll(".crud-nombre").forEach(el => { el.hidden = !conNombre; });
+    document.querySelectorAll(".crud-apellidos").forEach(el => { el.hidden = !conApellidos; });
+    $("crudMatriculaLabel").textContent = tipo === "profesores" ? "Credencial (5 dígitos) *" : "Matrícula (10 caracteres) *";
+    $("crudMatricula").maxLength = tipo === "profesores" ? 5 : 10;
     $("crudMatricula").required = conMatricula;
-    $("crudCorreo").required = conMatricula;
+    $("crudCorreo").required = true;
     $("crudNombre").required = conNombre;
-    $("crudApellidos").required = conNombre;
+    $("crudApellidos").required = conApellidos;
 
     if (item) {
-      $("crudMatricula").value = item.matricula || item._id || "";
+      $("crudMatricula").value = item.matricula || item.credencial || item._id || "";
       $("crudCorreo").value = item.correo || "";
       $("crudNombre").value = item.nombre || "";
       $("crudApellidos").value = item.apellidos || "";
@@ -829,33 +876,33 @@ document.addEventListener("DOMContentLoaded", () => {
     const idAnterior = $("crudId").value;
     const nombre = limpiar($("crudNombre").value);
     const apellidos = limpiar($("crudApellidos").value);
+    const correo = limpiarCorreo($("crudCorreo").value);
+    if (!RE_CORREO.test(correo)) { alert("Escribe un correo válido."); return; }
 
     try {
       if (tipo === "invitados") {
         if (idAnterior) {
-          await fs.collection("invitados").doc(idAnterior).update({ nombre, apellidos });
+          await fs.collection("invitados").doc(idAnterior).update({ nombre, correo });
         } else {
-          const folio = await registrarInvitado(nombre, apellidos);
+          const folio = await registrarInvitado(nombre, correo);
           alert(`Invitado registrado con folio INV-${folio}.`);
         }
       } else {
-        const matricula = limpiarMatricula($("crudMatricula").value);
-        const correo = limpiarCorreo($("crudCorreo").value);
-        const re = tipo === "alumnos" ? RE_MATRICULA_ALUMNO : RE_MATRICULA_PROFESOR;
-        if (!re.test(matricula)) {
-          alert(tipo === "alumnos" ? "La matrícula debe tener 10 letras o números." : "La matrícula debe tener entre 3 y 15 letras o números.");
+        const esAlumno = tipo === "alumnos";
+        const matricula = esAlumno ? limpiarMatricula($("crudMatricula").value) : $("crudMatricula").value.replace(/\D/g, "");
+        if (!(esAlumno ? RE_MATRICULA_ALUMNO : RE_CREDENCIAL).test(matricula)) {
+          alert(esAlumno ? "La matrícula debe tener 10 letras o números." : "La credencial debe tener exactamente 5 dígitos.");
           return;
         }
-        if (!RE_CORREO.test(correo)) { alert("Escribe un correo válido."); return; }
 
-        const prefijo = tipo === "alumnos" ? "ALU" : "PROF";
-        const datos = { matricula, correo, codigoQr: `${prefijo}-${matricula}` };
-        if (tipo === "profesores") Object.assign(datos, { nombre, apellidos });
+        const datos = esAlumno
+          ? { matricula, correo, codigoQr: `ALU-${matricula}` }
+          : { credencial: matricula, nombre, apellidos, correo, codigoQr: `PROF-${matricula}` };
 
         const nuevoRef = fs.collection(tipo).doc(matricula);
         if (matricula !== idAnterior) {
           const existe = await nuevoRef.get();
-          if (existe.exists) { alert(`La matrícula ${matricula} ya está registrada.`); return; }
+          if (existe.exists) { alert(`${esAlumno ? "La matrícula" : "La credencial"} ${matricula} ya está registrada.`); return; }
         }
         const anterior = idAnterior ? db[tipo].find(i => i._id === idAnterior) : null;
         const batch = fs.batch();

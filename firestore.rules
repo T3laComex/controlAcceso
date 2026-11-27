@@ -2,7 +2,7 @@ rules_version = '2';
 
 // Colecciones:
 //   alumnos/{matricula}      -> QR "ALU-<matricula>"
-//   profesores/{matricula}   -> QR "PROF-<matricula>"
+//   profesores/{credencial}  -> QR "PROF-<credencial>" (5 dígitos)
 //   invitados/{n}            -> QR "INV-<n>" (folio consecutivo)
 //   contadores/invitados     -> { n: último folio asignado }
 //   accesos/{id}             -> movimientos de entrada/salida (solo admin)
@@ -52,16 +52,16 @@ service cloud.firestore {
       allow get, list, delete: if isAdmin();
     }
 
-    match /profesores/{matricula} {
+    match /profesores/{credencial} {
       allow create: if isAdmin() || (
-        matricula.matches('^[A-Z0-9]{3,15}$')
-        && request.resource.data.keys().hasOnly(["matricula", "nombre", "apellidos", "correo", "codigoQr", "createdAt"])
-        && request.resource.data.keys().hasAll(["matricula", "nombre", "apellidos", "correo", "codigoQr", "createdAt"])
-        && request.resource.data.matricula == matricula
+        credencial.matches('^[0-9]{5}$')
+        && request.resource.data.keys().hasOnly(["credencial", "nombre", "apellidos", "correo", "codigoQr", "createdAt"])
+        && request.resource.data.keys().hasAll(["credencial", "nombre", "apellidos", "correo", "codigoQr", "createdAt"])
+        && request.resource.data.credencial == credencial
         && texto(request.resource.data.nombre, 80)
         && texto(request.resource.data.apellidos, 100)
         && correoValido(request.resource.data.correo)
-        && request.resource.data.codigoQr == "PROF-" + matricula
+        && request.resource.data.codigoQr == "PROF-" + credencial
         && request.resource.data.createdAt == request.time
       );
       allow update: if isAdmin() || consultaConCorreo();
@@ -87,16 +87,16 @@ service cloud.firestore {
 
     match /invitados/{folio} {
       allow create: if isAdmin() || (
-        request.resource.data.keys().hasOnly(["folio", "nombre", "apellidos", "codigoQr", "createdAt"])
-        && request.resource.data.keys().hasAll(["folio", "nombre", "apellidos", "codigoQr", "createdAt"])
+        request.resource.data.keys().hasOnly(["folio", "nombre", "correo", "codigoQr", "createdAt"])
+        && request.resource.data.keys().hasAll(["folio", "nombre", "correo", "codigoQr", "createdAt"])
         && folio == string(getAfter(contador()).data.n)
         && (
           (!exists(contador()) && getAfter(contador()).data.n == 1)
           || (exists(contador()) && getAfter(contador()).data.n == get(contador()).data.n + 1)
         )
         && request.resource.data.folio == getAfter(contador()).data.n
-        && texto(request.resource.data.nombre, 80)
-        && texto(request.resource.data.apellidos, 100)
+        && texto(request.resource.data.nombre, 120)
+        && correoValido(request.resource.data.correo)
         && request.resource.data.codigoQr == "INV-" + folio
         && request.resource.data.createdAt == request.time
       );
@@ -107,9 +107,16 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
-    // Registros de la versión anterior del formulario: solo lectura/borrado del admin.
+    // Formulario anterior (app.js en main). Se mantiene la creación pública mientras
+    // la versión nueva no esté en main; después se puede quitar el "allow create".
     match /attendees/{attendeeId} {
-      allow get, list, delete: if isAdmin();
+      allow create: if request.resource.data.keys().hasOnly(["nombre", "apellidos", "tipo", "createdAt"])
+        && request.resource.data.keys().hasAll(["nombre", "apellidos", "tipo", "createdAt"])
+        && texto(request.resource.data.nombre, 80)
+        && texto(request.resource.data.apellidos, 100)
+        && request.resource.data.tipo in ["Alumno", "Profesor", "Invitado"]
+        && request.resource.data.createdAt == request.time;
+      allow get, list, update, delete: if isAdmin();
     }
 
     match /{document=**} {

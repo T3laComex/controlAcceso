@@ -92,17 +92,25 @@
         </form>
       </div>
 
-      <!-- PROFESOR: matrícula + nombre + apellidos + correo -->
+      <!-- PROFESOR: PASO 1 credencial + correo; PASO 2 (solo si es nuevo) nombre + apellidos -->
       <div id="bloqueProfesor" hidden>
-        <form id="formProfesor" class="form-grid">
+        <form id="formCheckProfesor" class="form-grid">
           <div class="campo">
-            <label for="profesorMatricula">Matrícula *</label>
-            <input type="text" id="profesorMatricula" placeholder="Ej. 88901" maxlength="15" pattern="[A-Za-z0-9]{3,15}" autocomplete="off" required>
+            <label for="profesorCredencial">Número de Credencial * (5 dígitos numéricos)</label>
+            <input type="text" id="profesorCredencial" placeholder="Ej. 88901" maxlength="5" pattern="[0-9]{5}" inputmode="numeric" autocomplete="off" required>
           </div>
           <div class="campo">
             <label for="profesorCorreo">Correo Institucional *</label>
             <input type="email" id="profesorCorreo" placeholder="profesor@ilb.edu.mx" maxlength="120" required>
           </div>
+          <div class="campo full">
+            <button type="submit" class="btn-full">
+              <i class="fas fa-search"></i> Consultar / Obtener mi QR
+            </button>
+          </div>
+        </form>
+
+        <form id="formProfesor" class="form-grid" hidden style="margin-top: 18px;">
           <div class="campo">
             <label for="profesorNombre">Nombre(s) *</label>
             <input type="text" id="profesorNombre" placeholder="Ej. María Elena" maxlength="80" required>
@@ -113,22 +121,22 @@
           </div>
           <div class="campo full">
             <button type="submit" class="btn-full">
-              <i class="fas fa-search"></i> Consultar / Obtener mi QR
+              <i class="fas fa-qrcode"></i> Completar Registro y Generar QR
             </button>
           </div>
         </form>
       </div>
 
-      <!-- INVITADO: nombre + apellidos -> folio consecutivo -->
+      <!-- INVITADO: nombre + correo -> folio consecutivo -->
       <div id="bloqueInvitadoPub" hidden>
         <form id="formInvitadoPub" class="form-grid">
           <div class="campo">
             <label for="invitadoNombre">Nombre(s) *</label>
-            <input type="text" id="invitadoNombre" placeholder="Ej. Roberto" maxlength="80" required>
+            <input type="text" id="invitadoNombre" placeholder="Ej. Roberto" maxlength="120" required>
           </div>
           <div class="campo">
-            <label for="invitadoApellidos">Apellidos *</label>
-            <input type="text" id="invitadoApellidos" placeholder="Ej. Gómez Méndez" maxlength="100" required>
+            <label for="invitadoCorreo">Correo Electrónico *</label>
+            <input type="email" id="invitadoCorreo" placeholder="invitado@empresa.com" maxlength="120" required>
           </div>
           <div class="campo full">
             <button type="submit" class="btn-full">
@@ -136,7 +144,6 @@
             </button>
           </div>
         </form>
-        <p class="resumen" style="margin-top: 12px;">Descarga tu pase al generarlo: cada registro de invitado crea un folio nuevo.</p>
       </div>
 
     </div>
@@ -277,11 +284,11 @@
       <form id="formGuest" class="form-grid" style="max-width: 720px;">
         <div class="campo">
           <label for="guestNombre">Nombre(s) *</label>
-          <input type="text" id="guestNombre" placeholder="Ej. Roberto" maxlength="80" required>
+          <input type="text" id="guestNombre" placeholder="Ej. Roberto Gómez" maxlength="120" required>
         </div>
         <div class="campo">
-          <label for="guestApellidos">Apellidos *</label>
-          <input type="text" id="guestApellidos" placeholder="Ej. Gómez Méndez" maxlength="100" required>
+          <label for="guestCorreo">Correo Electrónico *</label>
+          <input type="email" id="guestCorreo" placeholder="invitado@empresa.com" maxlength="120" required>
         </div>
         <div class="campo full">
           <button type="submit" class="btn-full">
@@ -307,7 +314,7 @@
       <!-- Barra de herramientas: filtros y botón agregar -->
       <div class="toolbar">
         <div class="filtros">
-          <input type="search" id="dbBuscar" placeholder="Buscar por nombre, matrícula, folio o correo…">
+          <input type="search" id="dbBuscar" placeholder="Buscar por nombre, matrícula, credencial, folio o correo…">
           <button type="button" id="btnDbNuevo" class="btn-cyan">
             <i class="fas fa-plus"></i> Agregar Registro
           </button>
@@ -364,7 +371,7 @@
       <input type="hidden" id="crudTipo">
 
       <div class="campo crud-matricula">
-        <label for="crudMatricula">Matrícula *</label>
+        <label for="crudMatricula" id="crudMatriculaLabel">Matrícula *</label>
         <input type="text" id="crudMatricula" maxlength="15" autocomplete="off">
       </div>
       <div class="campo crud-correo">
@@ -373,9 +380,9 @@
       </div>
       <div class="campo crud-nombre">
         <label for="crudNombre">Nombre(s) *</label>
-        <input type="text" id="crudNombre" maxlength="80">
+        <input type="text" id="crudNombre" maxlength="120">
       </div>
-      <div class="campo crud-nombre">
+      <div class="campo crud-apellidos">
         <label for="crudApellidos">Apellidos *</label>
         <input type="text" id="crudApellidos" maxlength="100">
       </div>

@@ -7,10 +7,10 @@ Sitio estático para Firebase Hosting conectado directamente a Firestore. Cada p
 | Tipo | Datos que pide | Documento en Firestore | Contenido del QR |
 |---|---|---|---|
 | Alumno | Matrícula (10 caracteres) y correo | `alumnos/{matricula}` | `ALU-<matrícula>` |
-| Profesor | Matrícula, nombre, apellidos y correo | `profesores/{matricula}` | `PROF-<matrícula>` |
-| Invitado | Nombre y apellidos | `invitados/{folio}` | `INV-<folio>` |
+| Profesor | Credencial (5 dígitos) y correo; si es nuevo, también nombre y apellidos | `profesores/{credencial}` | `PROF-<credencial>` |
+| Invitado | Nombre y correo | `invitados/{folio}` | `INV-<folio>` |
 
-- **Sin duplicados:** la matrícula es el ID del documento. Las reglas solo permiten *crear* documentos nuevos, así que un segundo registro con la misma matrícula se rechaza sin revisar los demás registros.
+- **Sin duplicados:** la matrícula (o credencial) es el ID del documento. Las reglas solo permiten *crear* documentos nuevos, así que un segundo registro con la misma matrícula se rechaza sin revisar los demás registros.
 - **"Consultar / Obtener mi QR":** si la matrícula ya existe y el correo coincide, se vuelve a mostrar el QR. Si el correo no coincide, se rechaza. El público nunca puede leer los registros.
 - **Folio de invitado:** consecutivo (1, 2, 3…), asignado en una transacción con el contador `contadores/invitados`. Las reglas obligan a que el contador avance de uno en uno junto con la creación del invitado.
 - El panel de administrador (3 clics en el logo o Ctrl+Shift+A) inicia sesión con Firebase Authentication y permite ver, editar y borrar registros, generar invitados y consultar la colección `accesos` (monitor en vivo e historial).

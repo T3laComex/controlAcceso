@@ -1,6 +1,21 @@
 # Control de acceso al auditorio
 
-Sitio estático para Firebase Hosting. Los asistentes registran nombre, apellidos y tipo sin crear una cuenta. Solo la cuenta de administrador autorizada puede leer el historial.
+Sitio estático para Firebase Hosting conectado directamente a Firestore. Cada persona se registra sin crear cuenta y obtiene un código QR. Solo la cuenta de administrador autorizada puede leer los registros.
+
+## Registro y códigos QR
+
+| Tipo | Datos que pide | Documento en Firestore | Contenido del QR |
+|---|---|---|---|
+| Alumno | Matrícula (10 caracteres) y correo | `alumnos/{matricula}` | `ALU-<matrícula>` |
+| Profesor | Credencial (5 dígitos) y correo; si es nuevo, también nombre y apellidos | `profesores/{credencial}` | `PROF-<credencial>` |
+| Invitado | Nombre y correo | `invitados/{folio}` | `INV-<folio>` |
+
+- **Sin duplicados:** la matrícula (o credencial) es el ID del documento. Las reglas solo permiten *crear* documentos nuevos, así que un segundo registro con la misma matrícula se rechaza sin revisar los demás registros.
+- **"Consultar / Obtener mi QR":** si la matrícula ya existe y el correo coincide, se vuelve a mostrar el QR. Si el correo no coincide, se rechaza. El público nunca puede leer los registros.
+- **Folio de invitado:** consecutivo (1, 2, 3…), asignado en una transacción con el contador `contadores/invitados`. Las reglas obligan a que el contador avance de uno en uno junto con la creación del invitado.
+- El panel de administrador (3 clics en el logo o Ctrl+Shift+A) inicia sesión con Firebase Authentication y permite ver, editar y borrar registros, generar invitados y consultar la colección `accesos` (monitor en vivo e historial).
+
+Después de cambiar `firestore.rules`, publícalas con `firebase deploy --only firestore:rules --project t3lacceso` (o cópialas en Firebase Console → Firestore Database → Reglas). El workflow de GitHub solo publica Hosting, no las reglas.
 
 ## Conectar el proyecto Firebase una vez
 
@@ -8,7 +23,7 @@ Sitio estático para Firebase Hosting. Los asistentes registran nombre, apellido
 2. En **Authentication → Sign-in method**, habilita **Correo electrónico/contraseña**.
 3. En **Authentication → Users**, agrega la cuenta del administrador. Copia su **UID**.
 4. En `firebase-config.js`, reemplaza `PEGA_AQUI_EL_UID_DEL_ADMIN` por ese UID.
-5. Abre `firestore.rules`, reemplaza `PEGA_AQUI_EL_UID_DEL_ADMIN` por el mismo UID y copia todas las reglas en Firebase Console → **Firestore Database → Reglas**. Pulsa **Publicar**. Las reglas permiten crear registros públicos con campos limitados; solo ese UID puede leerlos, modificarlos o eliminarlos. El resto de la base queda denegado.
+5. Verifica que el UID de `firestore.rules` (función `isAdmin`) sea el mismo y publica las reglas (ver arriba). Las reglas permiten crear registros públicos con campos limitados; solo ese UID puede leerlos, modificarlos o eliminarlos. El resto de la base queda denegado.
 6. En Firestore Database, crea la base de datos en modo de producción si todavía no existe. No uses reglas abiertas de prueba.
 7. El sitio funciona con usuarios en el plan gratuito Spark mientras se respeten sus cuotas. En este proyecto no se necesita Data Connect, Node ni una tarjeta para los registros de Firestore en el nivel gratuito.
 
@@ -18,7 +33,7 @@ Sitio estático para Firebase Hosting. Los asistentes registran nombre, apellido
 
 El workflow `.github/workflows/firebase-hosting.yml` publica `main` en Firebase Hosting y crea vistas previas para pull requests del mismo repositorio. Requiere el secreto `FIREBASE_SERVICE_ACCOUNT_T3LACCESO` en GitHub. Este secreto es para publicar el sitio; no se usa en el navegador ni concede acceso a los registros de asistentes.
 
-Después de configurar `firebase-config.js` y publicar las reglas, sube los cambios a `main`. Revisa **Actions** y abre la URL de Hosting que muestre el despliegue. En la web, pulsa tres veces el logo para abrir el acceso del administrador. Registra una persona ficticia y confirma que aparece en Firestore, colección `attendees`.
+Después de configurar `firebase-config.js` y publicar las reglas, sube los cambios a `main`. Revisa **Actions** y abre la URL de Hosting que muestre el despliegue. En la web, pulsa tres veces el logo para abrir el acceso del administrador. Registra una persona ficticia y confirma que aparece en Firestore, en la colección `alumnos`, `profesores` o `invitados`.
 
 Los registros son públicos de escritura para permitir el acceso sin cuenta, pero las reglas no permiten leerlos públicamente. Como cualquier formulario público, alguien podría intentar enviar registros falsos o consumir cuota; las reglas validan campos y restringen el tamaño, pero no son un limitador de frecuencia. Para un evento real, activa Firebase App Check y revisa las cuotas.
 

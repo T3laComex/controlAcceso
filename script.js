@@ -932,7 +932,7 @@ document.addEventListener("DOMContentLoaded", () => {
       type: "canvas",
       data: payload.id_qr,
       margin: 12, // borde blanco dentro del PNG: los lectores lo necesitan
-      image: "logo-informatica.png",
+      image: "qrcripto.png",
       qrOptions: { errorCorrectionLevel: "H" }, // tolera ~30% tapado por el logo
       imageOptions: { margin: 4, imageSize: 0.35, hideBackgroundDots: true },
       dotsOptions: { color: "#4c1d95", type: "rounded" },

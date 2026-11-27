@@ -1,0 +1,33 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.uid == "KwmuSjo6owaDRCCNu0whvIjzWzJ3";
+    }
+
+    match /attendees/{attendeeId} {
+      allow create: if request.resource.data.keys().hasOnly([
+          "nombre", "apellidos", "tipo", "createdAt"
+        ])
+        && request.resource.data.keys().hasAll([
+          "nombre", "apellidos", "tipo", "createdAt"
+        ])
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() > 0
+        && request.resource.data.nombre.size() <= 80
+        && request.resource.data.apellidos is string
+        && request.resource.data.apellidos.size() > 0
+        && request.resource.data.apellidos.size() <= 100
+        && request.resource.data.tipo in ["Alumno", "Profesor", "Invitado"]
+        && request.resource.data.createdAt == request.time;
+
+      allow get, list, update, delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

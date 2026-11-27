@@ -1,12 +1,13 @@
 {
-  "dataconnect": {
-    "source": "dataconnect"
+  "firestore": {
+    "rules": "firestore.rules"
   },
   "hosting": {
     "public": ".",
     "ignore": [
       "firebase.json",
       "README.md",
+      "firestore.rules",
       ".env",
       ".env.*",
       "**/.*",
@@ -16,7 +17,9 @@
       "dataconnect/**",
       "server.js",
       "package.json",
-      "package-lock.json"
+      "package-lock.json",
+      "**/*firebase-adminsdk*.json",
+      "**/*service-account*.json"
     ]
   }
 }

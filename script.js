@@ -923,7 +923,6 @@ document.addEventListener("DOMContentLoaded", () => {
     $("modalBadgeQr").textContent = payload.id_qr;
     $("modalTitle").textContent = payload.nombre_completo;
     $("modalSub").textContent = payload.detalle || "";
-    $("btnEmailQR").hidden = !payload.correo;
 
     const container = $("qrContainer");
     container.innerHTML = "";
@@ -949,22 +948,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (currentQrObj && currentModalPayload) {
       currentQrObj.download({ name: `${currentModalPayload.id_qr}`, extension: "png" });
     }
-  });
-
-  $("btnEmailQR").addEventListener("click", () => {
-    if (!currentModalPayload || !currentModalPayload.correo) return;
-    if (currentQrObj) {
-      currentQrObj.download({ name: `${currentModalPayload.id_qr}`, extension: "png" });
-    }
-    const asunto = encodeURIComponent(`Credencial QR de Acceso (${currentModalPayload.id_qr}) - Instituto Leonardo Bravo`);
-    const cuerpo = encodeURIComponent(
-      `Hola ${currentModalPayload.nombre_completo},\n\n` +
-      `Se ha generado tu código QR de acceso para el Instituto Leonardo Bravo (Plantel Centro).\n\n` +
-      `• Folio QR: ${currentModalPayload.id_qr}\n` +
-      `\n(Adjunta en este correo la imagen PNG del código QR que se acaba de descargar).\n\n` +
-      `Atentamente,\nControl de Acceso · Semana de Informática XXXIII`
-    );
-    window.open(`mailto:${currentModalPayload.correo}?subject=${asunto}&body=${cuerpo}`, "_blank");
   });
 
   /* ---------- PARTÍCULAS / NIEVE Y LUCES ---------- */

@@ -918,8 +918,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }));
 
   /* ---------- MODAL QR ---------- */
-  const QR_PANTALLA = 300;  // px en el modal
-  const QR_DESCARGA = 1000; // px del PNG descargado (nítido al imprimir)
+  const QR_PANTALLA = 300; 
+  const QR_DESCARGA = 1000; 
 
   function crearQr(data, tamano) {
     return new QRCodeStyling({
@@ -927,15 +927,22 @@ document.addEventListener("DOMContentLoaded", () => {
       height: tamano,
       type: "canvas",
       data,
-      margin: Math.round(tamano * 0.05), // borde blanco dentro del PNG: los lectores lo necesitan
+      margin: Math.round(tamano * 0.05), 
       image: "qrcripto-qr.png",
-      qrOptions: { errorCorrectionLevel: "H" }, // tolera ~30% tapado por el logo
+      qrOptions: { errorCorrectionLevel: "H" }, 
       imageOptions: { margin: 4, imageSize: 0.35, hideBackgroundDots: true },
-      // Estilo cuadrado: con logo al centro, el redondeado falla en algunos lectores.
-      dotsOptions: { color: "#4c1d95", type: "square" },
-      backgroundOptions: { color: "#ffffff" },
-      cornersSquareOptions: { color: "#0284c7", type: "square" },
-      cornersDotOptions: { color: "#0284c7", type: "square" }
+      // aqui pones los colores que se manejan Franco!
+      //mirale lo corriges aca
+
+
+
+      dotsOptions: { color: "#ffffff", type: "square" },
+      backgroundOptions: { color: "#04122a" },
+      cornersSquareOptions: { color: "#22d3ee", type: "square" },
+      cornersDotOptions: { color: "#22d3ee", type: "square" }
+
+
+      //borramos esto
     });
   }
 

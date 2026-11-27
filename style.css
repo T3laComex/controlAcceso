@@ -647,7 +647,7 @@ tr.fila-alerta { background: rgba(239, 68, 68, 0.15) !important; box-shadow: ins
   display: flex;
   justify-content: center;
   padding: 6px;
-  background: #ffffff;
+  background: #04122a; /* mismo azul que el fondo del QR */
   border: 2px solid var(--morado);
   border-radius: 16px;
   margin-bottom: 18px;

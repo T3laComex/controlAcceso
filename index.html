@@ -3,28 +3,37 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#070a14">
   <title>Control de Acceso | Instituto Leonardo Bravo</title>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="icon" type="image/png" href="logo-ilb.png">
   <link rel="stylesheet" href="style.css">
+  <script src="https://unpkg.com/qr-code-styling@1.5.0/lib/qr-code-styling.js"></script>
 </head>
 <body>
+
 <canvas id="nieve" aria-hidden="true"></canvas>
 
+<!-- SIDEBAR DINÁMICO -->
 <aside class="sidebar">
-  <div class="logo" id="logoMapache" title="Semana de Informática XXXIII">
-    <img src="logo-informatica.png" alt="Logo Semana de Informática XXXIII">
+  <div class="logo" title="Semana de Informática XXXIII">
+    <img id="logoMapache" src="logo-informatica.png" alt="Logo Semana de Informática XXXIII">
   </div>
+
+  <!-- Menú antes de iniciar sesión (Solo Registro QR visible) -->
   <nav class="menu" id="menuPublico">
-    <a href="#registro" id="registroBtn" class="activo"><i class="fas fa-clipboard-list"></i> Registro de entrada</a>
+    <a href="#registro" id="registroBtn" class="activo"><i class="fas fa-qrcode"></i> Registro QR</a>
   </nav>
+
+  <!-- Menú exclusivo cuando el Administrador inicia sesión -->
   <nav class="menu" id="menuAdmin" hidden>
-    <a href="#inicio" id="inicioBtn" class="activo"><i class="fas fa-users"></i> Entradas de hoy</a>
-    <a href="#historial" id="historialBtn"><i class="fas fa-clock"></i> Historial</a>
-    <a href="#salir" id="btnLogoutAdmin" class="link-salir"><i class="fas fa-sign-out-alt"></i> Cerrar sesión</a>
+    <a href="#inicio" id="inicioBtn" class="activo">Monitor en Vivo</a>
+    <a href="#historial" id="historialBtn">Historial</a>
+    <a href="#invitado" id="invitadoBtn">Generar Invitado</a>
+    <a href="#baseDatos" id="baseDatosBtn">Base de Datos</a>
+    <a href="#salir" id="btnLogoutAdmin" class="link-salir">Cerrar Sesión Admin</a>
   </nav>
+
   <button class="sec nieve-btn" id="nieveBtn" type="button">❄️ Nieve: activada</button>
   <div class="conexion" id="conexion" hidden>
     <span class="punto"></span>
@@ -32,13 +41,15 @@
   </div>
 </aside>
 
+<!-- CONTENIDO PRINCIPAL -->
 <main class="contenido">
+
   <header class="header">
     <div class="marca">
-      <img class="logo-semana" src="logo-ilb.png" alt="Logo ILB">
+      <img class="logo-semana" src="logo-ilb.png" alt="Logo ILB Informática">
       <div>
         <h1>Instituto Leonardo Bravo</h1>
-        <h2>Plantel Centro · Registro de acceso al auditorio</h2>
+        <h2>Plantel Centro · Control de Acceso</h2>
       </div>
     </div>
     <div class="reloj">
@@ -48,121 +59,340 @@
     <div class="luces" id="luces" aria-hidden="true"></div>
   </header>
 
-  <div id="configWarning" class="alerta" role="alert" hidden></div>
-  <div id="appMessage" class="alerta-info" role="status" aria-live="polite" hidden></div>
-
+  <!-- ==================== 1. REGISTRO PÚBLICO QR (PANTALLA INICIAL) ==================== -->
   <section id="registro">
-    <div class="tabla login-box">
+    <div class="tabla">
       <div class="tabla-top">
-        <h2>Registro de entrada</h2>
+        <h2>Registro y Generación de QR</h2>
+        <div class="sub-tabs">
+          <button type="button" id="tabAlumno" class="tab-pill activo">Alumno</button>
+          <button type="button" id="tabProfesor" class="tab-pill">Profesor</button>
+          <button type="button" id="tabInvitadoPub" class="tab-pill">Invitado</button>
+        </div>
       </div>
-      <p class="resumen">Escribe los datos de la persona que ingresa al auditorio. No necesita crear una cuenta.</p>
-      <form id="formRegistro" class="form-grid">
-        <div class="campo">
-          <label for="nombre">Nombre(s) *</label>
-          <input id="nombre" name="nombre" type="text" maxlength="80" autocomplete="given-name" required>
-        </div>
-        <div class="campo">
-          <label for="apellidos">Apellidos *</label>
-          <input id="apellidos" name="apellidos" type="text" maxlength="100" autocomplete="family-name" required>
-        </div>
-        <div class="campo full">
-          <label for="tipo">Tipo de asistente *</label>
-          <select id="tipo" name="tipo" required>
-            <option value="">-- Seleccionar --</option>
-            <option value="Alumno">Alumno</option>
-            <option value="Profesor">Profesor</option>
-            <option value="Invitado">Invitado</option>
-          </select>
-        </div>
-        <div class="campo full">
-          <button id="btnRegistrar" type="submit" class="btn-full">
-            <i class="fas fa-clipboard-check"></i> Registrar entrada
-          </button>
-        </div>
-      </form>
+
+      <div id="msgRegistro" class="alerta-info" hidden></div>
+
+      <!-- ALUMNO: matrícula + correo -->
+      <div id="bloqueAlumno">
+        <form id="formAlumno" class="form-grid">
+          <div class="campo">
+            <label for="alumnoMatricula">Matrícula * (10 caracteres alfanuméricos)</label>
+            <input type="text" id="alumnoMatricula" placeholder="Ej. 20266001A3" maxlength="10" pattern="[A-Za-z0-9]{10}" autocomplete="off" required>
+          </div>
+          <div class="campo">
+            <label for="alumnoCorreo">Correo Institucional *</label>
+            <input type="email" id="alumnoCorreo" placeholder="alumno@ilb.edu.mx" maxlength="120" required>
+          </div>
+          <div class="campo full">
+            <button type="submit" class="btn-full">
+              <i class="fas fa-search"></i> Consultar / Obtener mi QR
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- PROFESOR: matrícula + nombre + apellidos + correo -->
+      <div id="bloqueProfesor" hidden>
+        <form id="formProfesor" class="form-grid">
+          <div class="campo">
+            <label for="profesorMatricula">Matrícula *</label>
+            <input type="text" id="profesorMatricula" placeholder="Ej. 88901" maxlength="15" pattern="[A-Za-z0-9]{3,15}" autocomplete="off" required>
+          </div>
+          <div class="campo">
+            <label for="profesorCorreo">Correo Institucional *</label>
+            <input type="email" id="profesorCorreo" placeholder="profesor@ilb.edu.mx" maxlength="120" required>
+          </div>
+          <div class="campo">
+            <label for="profesorNombre">Nombre(s) *</label>
+            <input type="text" id="profesorNombre" placeholder="Ej. María Elena" maxlength="80" required>
+          </div>
+          <div class="campo">
+            <label for="profesorApellidos">Apellidos *</label>
+            <input type="text" id="profesorApellidos" placeholder="Ej. Ríos Salazar" maxlength="100" required>
+          </div>
+          <div class="campo full">
+            <button type="submit" class="btn-full">
+              <i class="fas fa-search"></i> Consultar / Obtener mi QR
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- INVITADO: nombre + apellidos -> folio consecutivo -->
+      <div id="bloqueInvitadoPub" hidden>
+        <form id="formInvitadoPub" class="form-grid">
+          <div class="campo">
+            <label for="invitadoNombre">Nombre(s) *</label>
+            <input type="text" id="invitadoNombre" placeholder="Ej. Roberto" maxlength="80" required>
+          </div>
+          <div class="campo">
+            <label for="invitadoApellidos">Apellidos *</label>
+            <input type="text" id="invitadoApellidos" placeholder="Ej. Gómez Méndez" maxlength="100" required>
+          </div>
+          <div class="campo full">
+            <button type="submit" class="btn-full">
+              <i class="fas fa-ticket-alt"></i> Obtener Pase QR de Invitado
+            </button>
+          </div>
+        </form>
+        <p class="resumen" style="margin-top: 12px;">Descarga tu pase al generarlo: cada registro de invitado crea un folio nuevo.</p>
+      </div>
+
     </div>
   </section>
 
+  <!-- ==================== 2. LOGIN ADMINISTRADOR (OCULTO - 3 CLICS EN MAPACHE) ==================== -->
   <section id="adminLogin" hidden>
     <div class="tabla login-box">
-      <h2>Acceso de administración</h2>
-      <p class="resumen">Inicia sesión con la cuenta de administrador autorizada.</p>
+      <h2>🛡️ Acceso Administrador</h2>
+      <p class="resumen">Ingrese con la cuenta de administrador de Firebase para acceder al Monitor en Vivo, Historial, Pase de Invitados y Base de Datos.</p>
       <form id="formAdminLogin" class="form-grid">
         <div class="campo full">
-          <label for="adminEmailInput">Correo del administrador</label>
-          <input id="adminEmailInput" type="email" autocomplete="username" required>
+          <label for="adminEmailInput">Correo</label>
+          <input type="email" id="adminEmailInput" placeholder="admin@ilb.edu.mx" autocomplete="username" required>
         </div>
         <div class="campo full">
           <label for="adminPasswordInput">Contraseña</label>
-          <input id="adminPasswordInput" type="password" autocomplete="current-password" required>
+          <input type="password" id="adminPasswordInput" placeholder="••••••••" autocomplete="current-password" required>
         </div>
         <div class="campo full">
-          <button type="submit" class="btn-full">Ingresar</button>
+          <button type="submit" class="btn-full">Ingresar al Panel</button>
         </div>
       </form>
     </div>
   </section>
 
+  <!-- ==================== 3. MONITOR EN VIVO (SOLO ADMIN) ==================== -->
   <section id="inicio" hidden>
     <div class="tarjetas">
       <div class="card">
-        <h3>Entradas registradas hoy</h3>
-        <div class="numero" id="totalEntradas">0</div>
-        <p class="nota">Personas registradas</p>
+        <h3>Total de Usuarios</h3>
+        <div class="numero" id="totalAlumnos">0</div>
+        <p class="nota">Con registro hoy</p>
+      </div>
+      <div class="card">
+        <h3>Dentro del Plantel</h3>
+        <div class="numero verde" id="alumnosDentro">0</div>
+        <p class="nota">En instalaciones ahora</p>
+      </div>
+      <div class="card">
+        <h3>Fuera del Plantel</h3>
+        <div class="numero rojo" id="alumnosFuera">0</div>
+        <p class="nota">Salida, sanitario o break</p>
       </div>
     </div>
+
     <div class="tabla">
       <div class="tabla-top">
-        <h2>Entradas de hoy</h2>
-        <input type="search" id="buscarHoy" placeholder="Buscar por nombre o tipo">
+        <h2>Estado Actual</h2>
+        <input type="search" id="buscarInicio" placeholder="Buscar por matrícula, nombre o grupo…">
       </div>
+
+      <div class="alerta" id="alertaTiempo" hidden></div>
+
       <div class="tabla-scroll">
         <table>
-          <thead><tr><th>Nombre</th><th>Tipo</th><th>Fecha</th><th>Hora</th></tr></thead>
-          <tbody id="tablaHoy"></tbody>
+          <thead>
+            <tr>
+              <th>ID / Matrícula</th>
+              <th>Nombre Completo</th>
+              <th>Grupo / Rol</th>
+              <th>Estado Acceso</th>
+              <th>Fecha</th>
+              <th>Hora</th>
+              <th>Tiempo fuera</th>
+            </tr>
+          </thead>
+          <tbody id="tablaInicio"></tbody>
         </table>
+      </div>
+
+      <div class="botones">
+        <button id="btnHistorial" type="button">Ver Historial Completo</button>
       </div>
     </div>
   </section>
 
+  <!-- ==================== 4. HISTORIAL (SOLO ADMIN) ==================== -->
   <section id="historial" hidden>
     <div class="tabla">
       <div class="solo-impresion">
         <img src="logo-ilb.png" alt="Logo ILB">
         <div>
           <h1>Instituto Leonardo Bravo · Plantel Centro</h1>
-          <p>Registro de accesos — <span id="impFecha"></span></p>
+          <p>Historial de accesos — <span id="impFecha"></span></p>
         </div>
       </div>
+
       <div class="tabla-top">
-        <h2>Historial de entradas</h2>
+        <h2>Historial de Movimientos</h2>
         <div class="acciones">
-          <button class="sec" id="btnExcel" type="button">Descargar CSV</button>
-          <button class="sec" id="btnPdf" type="button">Imprimir</button>
+          <button class="sec" id="btnExcel" type="button">Excel (.csv)</button>
+          <button class="sec" id="btnPdf" type="button"> PDF / Imprimir</button>
         </div>
       </div>
+
       <div class="toolbar">
         <div class="selector-fecha">
+          <button class="sec icono" id="diaAnterior" type="button" aria-label="Día anterior">‹</button>
           <input type="date" id="fechaHistorial" aria-label="Fecha del historial">
+          <button class="sec icono" id="diaSiguiente" type="button" aria-label="Día siguiente">›</button>
+          <button class="sec" id="btnHoy" type="button">Hoy</button>
         </div>
-        <input type="search" id="buscarHistorial" placeholder="Buscar por nombre o tipo">
+        <div class="filtros">
+          <input type="search" id="buscarHistorial" placeholder="Buscar por nombre, ID o grupo…">
+          <select id="filtroEstado"><option value="">Todos los movimientos</option></select>
+        </div>
       </div>
+
       <p class="resumen" id="resumenHistorial"></p>
+
       <div class="tabla-scroll">
         <table>
-          <thead><tr><th>Nombre</th><th>Tipo</th><th>Fecha</th><th>Hora</th></tr></thead>
+          <thead>
+            <tr>
+              <th>ID / Matrícula</th>
+              <th>Nombre Completo</th>
+              <th>Grupo / Rol</th>
+              <th>Movimiento</th>
+              <th>Fecha</th>
+              <th>Hora</th>
+            </tr>
+          </thead>
           <tbody id="tablaHistorial"></tbody>
         </table>
       </div>
     </div>
   </section>
+
+  <!-- ==================== 5. GENERAR INVITADO (SOLO ADMIN) ==================== -->
+  <section id="invitado" hidden>
+    <div class="tabla">
+      <div class="tabla-top">
+        <h2>Generar Invitado </h2>
+      </div>
+      <p class="resumen">Registra un visitante externo y genera automáticamente su folio y código QR de acceso.</p>
+      
+      <form id="formGuest" class="form-grid" style="max-width: 720px;">
+        <div class="campo">
+          <label for="guestNombre">Nombre(s) *</label>
+          <input type="text" id="guestNombre" placeholder="Ej. Roberto" maxlength="80" required>
+        </div>
+        <div class="campo">
+          <label for="guestApellidos">Apellidos *</label>
+          <input type="text" id="guestApellidos" placeholder="Ej. Gómez Méndez" maxlength="100" required>
+        </div>
+        <div class="campo full">
+          <button type="submit" class="btn-full">
+            <i class="fas fa-ticket-alt"></i> Registrar Invitado y Generar QR
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <!-- ==================== 6. BASE DE DATOS / GESTIÓN DE USUARIOS (SOLO ADMIN) ==================== -->
+  <section id="baseDatos" hidden>
+    <div class="tabla">
+      <div class="tabla-top">
+        <h2>Gestión de Base de Datos</h2>
+        <div class="sub-tabs">
+          <button type="button" id="dbTabAlumnos" class="tab-pill activo">Alumnos</button>
+          <button type="button" id="dbTabProfesores" class="tab-pill">Profesores</button>
+          <button type="button" id="dbTabInvitados" class="tab-pill">Invitados</button>
+        </div>
+      </div>
+
+      <!-- Barra de herramientas: filtros y botón agregar -->
+      <div class="toolbar">
+        <div class="filtros">
+          <input type="search" id="dbBuscar" placeholder="Buscar por nombre, matrícula, folio o correo…">
+          <button type="button" id="btnDbNuevo" class="btn-cyan">
+            <i class="fas fa-plus"></i> Agregar Registro
+          </button>
+        </div>
+      </div>
+
+      <p class="resumen" id="resumenDb"></p>
+
+      <div class="tabla-scroll">
+        <table>
+          <thead id="theadDb"></thead>
+          <tbody id="tbodyDb"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
 </main>
+
+<!-- ==================== MODAL CREDENCIAL QR ==================== -->
+<div id="qrModal" class="modal-backdrop" hidden>
+  <div class="modal-card">
+    <button type="button" id="btnCloseModal" class="modal-close" aria-label="Cerrar">&times;</button>
+
+    <div class="modal-logos">
+      <img src="logo-ilb.png" alt="ILB">
+      <span class="badge-credencial" id="modalBadgeQr">ID QR</span>
+      <img src="logo-informatica.png" alt="Informática">
+    </div>
+
+    <h3 id="modalTitle">Nombre Usuario</h3>
+    <p id="modalSub" class="modal-sub"></p>
+
+    <div id="qrContainer" class="qr-box"></div>
+
+    <div class="modal-actions">
+      <button type="button" id="btnDownloadQR" class="btn-cyan">
+        <i class="fas fa-download"></i> Descargar PNG
+      </button>
+      <button type="button" id="btnEmailQR" class="sec">
+        <i class="fas fa-envelope"></i> Enviar Correo
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== MODAL AGREGAR / EDITAR REGISTRO (ADMIN) ==================== -->
+<div id="crudModal" class="modal-backdrop" hidden>
+  <div class="modal-card" style="max-width: 560px; text-align: left;">
+    <button type="button" id="btnCloseCrud" class="modal-close" aria-label="Cerrar">&times;</button>
+    <h3 id="crudModalTitle" style="margin-bottom: 16px;">Editar Registro</h3>
+    <form id="formCrud" class="form-grid">
+      <input type="hidden" id="crudId">
+      <input type="hidden" id="crudTipo">
+
+      <div class="campo crud-matricula">
+        <label for="crudMatricula">Matrícula *</label>
+        <input type="text" id="crudMatricula" maxlength="15" autocomplete="off">
+      </div>
+      <div class="campo crud-correo">
+        <label for="crudCorreo">Correo *</label>
+        <input type="email" id="crudCorreo" maxlength="120">
+      </div>
+      <div class="campo crud-nombre">
+        <label for="crudNombre">Nombre(s) *</label>
+        <input type="text" id="crudNombre" maxlength="80">
+      </div>
+      <div class="campo crud-nombre">
+        <label for="crudApellidos">Apellidos *</label>
+        <input type="text" id="crudApellidos" maxlength="100">
+      </div>
+
+      <div class="campo full">
+        <button type="submit" class="btn-full">
+          <i class="fas fa-save"></i> Guardar Cambios
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
 
 <script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js"></script>
-<script src="app.js"></script>
+<script src="script.js"></script>
 </body>
 </html>
